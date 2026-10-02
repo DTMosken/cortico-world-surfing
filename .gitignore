@@ -1,0 +1,5 @@
+node_modules/
+scratch/
+coverage/
+*.tgz
+.pnpm-store/
