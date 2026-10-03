@@ -1,8 +1,7 @@
 /** Cursors authenticate an immutable source snapshot and a position, never a page number. */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { SurfingConfigSection } from './config.ts';
-import { ReadError } from './errors.ts';
-import { estimateTokens } from './tokens.ts';
+import { ReadError } from './network.ts';
 
 export type RecordValue = Record<string, string | number | boolean>;
 export type Unit = { kind: 'text'; text: string; startSec?: number; endSec?: number }
@@ -21,6 +20,17 @@ export interface Material {
 interface Snapshot { material: Material; size: number; expiresAtMs: number; materialEstimatedTokens: number; nextSearchCursor?: string }
 interface Position { id: string; unit: number; offset: number }
 export interface PageResult { text: string; hasMore: boolean; sourceTruncated: boolean; estimatedTokens: number }
+
+/** Adapted from Cortico src/protocol/open-responses/tokens.ts, MIT, Phantivia. */
+export function estimateTokens(text: string): number {
+  let weighted = 0;
+  for (const character of text) {
+    const code = character.codePointAt(0)!;
+    weighted += ((code >= 0x4e00 && code <= 0x9fff) || (code >= 0x3000 && code <= 0x30ff)
+      || (code >= 0xff00 && code <= 0xffef)) ? 6 : 3;
+  }
+  return Math.ceil(weighted / 10);
+}
 
 export function serializeReceipt(receipt: Record<string, unknown>): string {
   receipt.estimatedTokens = 0;

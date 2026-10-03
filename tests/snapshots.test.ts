@@ -1,7 +1,6 @@
 import { expect, test } from 'vitest';
-import { SnapshotCache, type Material } from '../src/snapshots.ts';
+import { SnapshotCache, estimateTokens, type Material } from '../src/snapshots.ts';
 import { SURFING_DEFAULTS } from '../src/config.ts';
-import { estimateTokens } from '../src/tokens.ts';
 
 test('完整回执受限且改变预算续读不丢字、不破坏 Unicode', () => {
   const config = structuredClone(SURFING_DEFAULTS);

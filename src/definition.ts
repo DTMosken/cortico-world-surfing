@@ -8,3 +8,8 @@ export const SURFING: WorldDefinition<SurfingConfigSection> = {
   preflight: ctx => validateConfig(ctx.cfg),
   create: ctx => new SurfingWorld(ctx),
 };
+
+export default SURFING;
+export { SURFING_DEFAULTS, SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP } from './config.ts';
+export type { SurfingConfigSection } from './config.ts';
+export { SurfingWorld };

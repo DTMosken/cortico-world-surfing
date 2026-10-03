@@ -5,7 +5,9 @@ import { parentPort, workerData } from "node:worker_threads";
 import { JSDOM } from "jsdom";
 import { Readability } from "@mozilla/readability";
 
-// src/errors.ts
+// src/network.ts
+import { isIP } from "node:net";
+import ipaddr from "ipaddr.js";
 var ReadError = class extends Error {
   constructor(kind, message) {
     super(message);
@@ -19,10 +21,6 @@ function asReadError(error) {
     return new ReadError("timeout", "\u8BFB\u53D6\u5DF2\u53D6\u6D88\u6216\u8D85\u65F6\u3002");
   return new ReadError("network_error", "\u8BFB\u53D6\u5931\u8D25\uFF0C\u672A\u53D6\u5F97\u53EF\u7528\u6587\u672C\u3002");
 }
-
-// src/network.ts
-import { isIP } from "node:net";
-import ipaddr from "ipaddr.js";
 function validatePublicUrl(input) {
   if (typeof input !== "string" || input.length > 8192) throw new ReadError("invalid_input", "URL \u4E3A\u7A7A\u6216\u8FC7\u957F\u3002");
   let url;

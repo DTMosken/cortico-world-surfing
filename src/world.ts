@@ -1,25 +1,47 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ToolDef, ToolOutcome, ToolCallContext, World, WorldConsoleDecl, WorldHost } from 'cortico/core/types.ts';
+import type { ToolDef, ToolSpec, ToolOutcome, ToolCallContext, World, WorldConsoleDecl, WorldHost } from 'cortico/core/types.ts';
 import type { WorldContext } from 'cortico/world.ts';
 import { SURFING_DEFAULTS, SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP, validateConfig, type SurfingConfigSection } from './config.ts';
 import { BiliClient, biliKey, type BiliInput } from './bili.ts';
-import { PublicClient, waitWithSignal, type ReadOperation } from './network.ts';
+import { ReadError, asReadError, PublicClient, waitWithSignal, type ReadOperation } from './network.ts';
 import { PageReader, pageKey } from './page-reader.ts';
-import { SnapshotCache, serializeReceipt, type Material } from './snapshots.ts';
-import { ReadError, asReadError } from './errors.ts';
-import { SURFING_TOOL_DECLS } from './tools.ts';
-import { estimateTokens } from './tokens.ts';
+import { SnapshotCache, serializeReceipt, estimateTokens, type Material } from './snapshots.ts';
 
 const ENV_PROMPT_FILE = fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url));
+
+const cursor = { type: 'string', maxLength: 256, description: '沿用上次返回的 nextCursor，并保持原目标参数。' };
+export const SURFING_TOOL_DECLS: ToolSpec[] = [
+  {
+    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页正文、目录和链接，返回预算内原文片段；可用 cursor 继续。URL 的章节锚点可定位长文。仅接受公开域名。',
+    parameters: { type: 'object', additionalProperties: false, required: ['url'], properties: {
+      url: { type: 'string', maxLength: 8192, description: '用户提供或搜索结果中需要打开的 HTTP(S) URL。' }, cursor,
+    } },
+  },
+  {
+    name: 'surfing_read_bili', tags: ['read'], description: '匿名读取 B站视频人工或 AI 字幕。提供 BV 即可；可指定 cid 或 URL 中的 p 选择分P。回执为字幕原文片段，缺字幕不代表无音频。',
+    parameters: { type: 'object', additionalProperties: false, anyOf: [{ required: ['bvid'] }, { required: ['aid'] }, { required: ['url'] }], properties: {
+      bvid: { type: 'string', pattern: '^BV[0-9A-Za-z]{10}$', description: '视频 BV号。' },
+      aid: { type: 'integer', minimum: 1, description: '稿件 aid；不知道时只给 BV 或 URL。' },
+      cid: { type: 'integer', minimum: 1, description: '特定分P的 cid；省略时按 URL 的 p 或第1P读取。' },
+      url: { type: 'string', maxLength: 8192, description: 'B站视频长链或 b23.tv 短链。' }, cursor,
+    } },
+  },
+  {
+    name: 'surfing_search_bili', tags: ['read'], description: '独立搜索 B站视频，返回标题、BV、链接、UP主与时长。明确要求找视频时调用；查梗或概念可使用“关键词 梗知识”。可用 cursor 继续。',
+    parameters: { type: 'object', additionalProperties: false, required: ['query'], properties: {
+      query: { type: 'string', minLength: 1, maxLength: 240 }, cursor,
+    } },
+  },
+];
 
 export class SurfingWorld implements World {
   readonly id = 'surfing';
   private readonly cache = new SnapshotCache();
   private readonly bili = new BiliClient();
   private readonly pages = new PageReader();
-  private readonly pendingSearches = new Map<string,Promise<string>>();
+  private readonly pendingSearches = new Map<string,{promise:Promise<string>;signal:AbortSignal}>();
   private lifecycle = new AbortController();
   private stopped = false;
   private last?: { status: string; failed: boolean; estimatedTokens: number; sourceTruncated: boolean };
@@ -61,28 +83,8 @@ export class SurfingWorld implements World {
           throw new ReadError('invalid_input', '搜索词需为1–240字符。');
         const query = args.query.trim();
         key = 'search:' + query;
-        if (cursor) {
-          const next = this.cache.nextSearch(cursor, key, config);
-          if (next?.cursor) cursor = next.cursor;
-          else if (next) {
-            const original = cursor;
-            let pending = this.pendingSearches.get(original);
-            if (!pending) {
-              pending = (async()=>{
-                const material = await this.bili.search(query,next.page,operation!);
-                operation!.signal.throwIfAborted();
-                const created = this.cache.put(material,config);
-                this.cache.rememberSearchNext(original,created);
-                return created;
-              })();
-              this.pendingSearches.set(original,pending);
-              void pending.finally(()=>{
-                if (this.pendingSearches.get(original)===pending) this.pendingSearches.delete(original);
-              }).catch(()=>{});
-            }
-            cursor = await waitWithSignal(pending,operation.signal);
-          }
-        } else material = await this.bili.search(query, 1, operation);
+        if (cursor) cursor = await this.searchCursor(cursor,key,query,config,operation);
+        else material = await this.bili.search(query, 1, operation);
       }
       operation.signal.throwIfAborted();
       if (material) cursor = this.cache.put(material, config);
@@ -98,6 +100,34 @@ export class SurfingWorld implements World {
       this.last = { status: failure.kind, failed: true, estimatedTokens: estimateTokens(text), sourceTruncated: false };
       return { text, failed: true };
     } finally { operation?.close(); }
+  }
+
+  private async searchCursor(original: string, key: string, query: string, config: SurfingConfigSection, operation: ReadOperation): Promise<string> {
+    while (true) {
+      operation.signal.throwIfAborted();
+      const next = this.cache.nextSearch(original,key,config);
+      if (!next) return original;
+      if (next.cursor) return next.cursor;
+      let pending = this.pendingSearches.get(original);
+      if (!pending) {
+        const promise = (async()=>{
+          const material = await this.bili.search(query,next.page,operation);
+          operation.signal.throwIfAborted();
+          const created = this.cache.put(material,config);
+          this.cache.rememberSearchNext(original,created);
+          return created;
+        })();
+        pending = {promise,signal:operation.signal}; this.pendingSearches.set(original,pending);
+        void promise.finally(()=>{
+          if (this.pendingSearches.get(original)===pending) this.pendingSearches.delete(original);
+        }).catch(()=>{});
+      }
+      try { return await waitWithSignal(pending.promise,operation.signal); }
+      catch (error) {
+        if (operation.signal.aborted || !pending.signal.aborted) throw error;
+        if (this.pendingSearches.get(original)===pending) this.pendingSearches.delete(original);
+      }
+    }
   }
 
   console(): WorldConsoleDecl {

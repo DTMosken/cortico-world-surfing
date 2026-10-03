@@ -1,7 +1,6 @@
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
-import { ReadError } from './errors.ts';
-import { validatePublicUrl } from './network.ts';
+import { ReadError, validatePublicUrl } from './network.ts';
 import type { Material, Unit } from './snapshots.ts';
 
 export function pageKey(input: string): string { return 'page:' + validatePublicUrl(input).href; }

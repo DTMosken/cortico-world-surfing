@@ -6,7 +6,7 @@
 
 ## 安装
 
-需要 Node.js 22.12 以上、Cortico World 扩展 API 5（Cortico 0.1.5 已验证）。
+需要 Node.js 22.12 以上的 22 系列或 24 以上版本，以及 Cortico World 扩展 API 5（Cortico 0.1.5 已验证）。
 
 1. 在 Cortico 的扩展管理页安装本地目录：`C:\Users\USER\Desktop\Proj\cortico-world-surfing`。
 2. 重启 Cortico 进程，让新扩展载入。
@@ -60,6 +60,10 @@
 ## 读取范围
 
 仅支持公开 HTTP(S) 域名，拒绝 localhost、IP 地址、账号 URL 和解析到非公网的域名；重定向及动态网页子资源同样检查。网页返回正文和链接，首版不提取 PDF、图片、音视频；B站视频走字幕工具。需要 JavaScript 的正文使用临时匿名浏览器，不导入已有浏览器账号、不提交表单。
+
+动态读取允许入口文档的 HTTP 重定向，以及脚本、样式和 GET 数据请求；嵌入文档、弹窗和脚本触发的新页面导航被拒绝。需要另一个页面时，使用其公开链接单独读取。
+
+渲染后备失败而已有静态文字时，保留文字并标明 `sourceTruncated`、`renderingStatus` 和原因；取消的读取不保存新快照。
 
 B站原生字幕接口可匿名访问，但并非每个视频或分P都有可取得的字幕。短暂空轨道会在同一读取限制内重试一次；仍为空、访问受限或协议变化时分别返回 `no_subtitle`、`access_denied`、`protocol_error`。没有字幕不能推断没有声音；标题和简介不能替代视频正文。
 

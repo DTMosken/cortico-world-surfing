@@ -3,13 +3,17 @@ import type { WorldContext } from 'cortico/world.ts';
 import { SURFING } from '../src/definition.ts';
 import { SurfingWorld } from '../src/world.ts';
 import { SURFING_DEFAULTS, type SurfingConfigSection } from '../src/config.ts';
-import { estimateTokens } from '../src/tokens.ts';
-import { PublicClient } from '../src/network.ts';
+import { estimateTokens } from '../src/snapshots.ts';
+import { PublicClient, waitWithSignal, type NetworkLimits } from '../src/network.ts';
 import { PlatformFixture } from './platform-fixture.ts';
 
 class FixtureClient extends PublicClient {
   constructor(readonly fixture: PlatformFixture) { super(); }
-  override operation() { return this.fixture; }
+  override operation(limits: NetworkLimits, parent?: AbortSignal) {
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal,AbortSignal.timeout(limits.requestTimeoutMs),...(parent?[parent]:[])]);
+    return {signal,downloadedBytes:0,close:()=>controller.abort(),get:(url:string)=>waitWithSignal(this.fixture.get(url),signal)};
+  }
 }
 function result(outcome: Awaited<ReturnType<ReturnType<SurfingWorld['tools']>[number]['handler']>>) {
   return JSON.parse(typeof outcome==='string'?outcome:outcome.text);
@@ -95,5 +99,25 @@ test('同一搜索边界并发续读只获取一份下一页快照', async () =>
   expect(left).toEqual(right); expect(left.results[0].title).toContain('第1次快照');
   expect(fixture.searchPages).toEqual([1,2]);
   expect(result(await tool.handler(args,call))).toEqual(left);
+  await world.stop();
+});
+
+test('取消首个搜索等待者后，其他调用可在自己的时限内继续', async () => {
+  class SlowFixture extends PlatformFixture {
+    override async get(url:string) {
+      if (new URL(url).searchParams.get('page')==='2') await new Promise(resolve=>setTimeout(resolve,40));
+      return super.get(url);
+    }
+  }
+  const fixture = new SlowFixture(); const world = new SurfingWorld(context(),new FixtureClient(fixture));
+  const tool = world.tools()[2]; const call = {role:'test',log:{} as never};
+  const page = result(await tool.handler({query:'竞赛'},call)); const args={query:'竞赛',cursor:page.nextCursor};
+  const controller = new AbortController();
+  const first = tool.handler(args,{...call,signal:controller.signal}); const second = tool.handler(args,call);
+  setTimeout(()=>controller.abort(),5);
+  const [cancelled,complete] = (await Promise.all([first,second])).map(result);
+  expect(cancelled.status).toBe('timeout'); expect(complete.status).toBe('ok');
+  expect(complete.results[0].title).toContain('第2页');
+  expect(result(await tool.handler(args,call))).toEqual(complete);
   await world.stop();
 });
