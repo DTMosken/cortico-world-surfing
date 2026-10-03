@@ -128,3 +128,26 @@ test('等待慢浏览器启动时也响应整次操作的取消', async () => {
     expect(Date.now()-started).toBeLessThan(150);
   } finally {operation.close();await renderer.stop();}
 });
+
+test('动态生成的正文链接沿用最终页面地址解析，返回可打开的编号', async () => {
+  const operation = fixtureOperation('<main><p id="text"></p></main><script>const root=document.querySelector("#text");root.textContent="动态正文。";const link=document.createElement("a");link.href="next";link.textContent="后续说明";root.append(link)</script>');
+  const reader = new PageReader();
+  try {
+    const material = await reader.read('https://example.org/docs/start', operation, 8*1024*1024);
+    expect(material.scope.extraction).toBe('rendered-html');
+    expect(material.links).toEqual({ L1: 'https://example.org/docs/next' });
+    expect(material.units.filter(x => x.kind === 'text').map(x => x.text).join('')).toContain('后续说明 [L1]');
+  } finally { operation.close(); await reader.stop(); }
+});
+
+test('重定向后的正文相对链接使用最终 URL，原 URL 仍可续读', async () => {
+  const operation = fixtureOperation('<main><p><a href="next#details">参考说明</a></p></main>');
+  const get = operation.get.bind(operation);
+  operation.get = async (url, options) => ({ ...await get(url, options), url: 'https://example.org/docs/final' });
+  const reader = new PageReader();
+  try {
+    const material = await reader.read('https://example.org/start', operation, 8*1024*1024);
+    expect(material.key).toBe('page:https://example.org/start');
+    expect(material.links).toEqual({ L1: 'https://example.org/docs/next#details' });
+  } finally { operation.close(); await reader.stop(); }
+});

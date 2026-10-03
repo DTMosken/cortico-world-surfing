@@ -4,12 +4,15 @@ import type { SurfingConfigSection } from './config.ts';
 import { ReadError } from './network.ts';
 
 export type RecordValue = Record<string, string | number | boolean>;
-export type Unit = { kind: 'text'; text: string; startSec?: number; endSec?: number }
+/** Link marker bounds use Unicode code points within the text unit. */
+export interface LinkSpan { id: string; from: number; to: number }
+export type Unit = { kind: 'text'; text: string; links?: LinkSpan[]; startSec?: number; endSec?: number }
   | { kind: 'part' | 'result'; value: RecordValue };
 export interface Material {
   kind: 'page' | 'bili' | 'search'; key: string; source: string; title: string;
   scope: Record<string, string | number | boolean>;
   units: Unit[];
+  links?: Record<string, string>;
   sourceTruncated?: boolean; truncationReason?: string;
   nextSearchPage?: number;
   sentenceTimes?: Array<{ from: number; to: number }>;
@@ -55,19 +58,35 @@ export class SnapshotCache {
     const material = structuredClone(input);
     let remaining = config.reading.maxSourceChars;
     const units: Unit[] = [];
+    const links: Record<string, string> = {};
     for (const unit of material.units) {
       const source = unit.kind === 'text' ? unit.text : JSON.stringify(unit.value);
       const chars = [...source];
-      if (chars.length > remaining) {
-        if (unit.kind === 'text' && remaining > 0) units.push({ ...unit, text: chars.slice(0, remaining).join('') });
+      let taken = Math.min(chars.length, remaining);
+      let linkChars = 0;
+      const spans: LinkSpan[] = [];
+      if (unit.kind === 'text') {
+        for (const span of unit.links ?? []) {
+          if (span.from >= taken) break;
+          const url = material.links![span.id];
+          const cost = links[span.id] ? 0 : [...url].length;
+          if (span.to + linkChars + cost > remaining) { taken = span.from; break; }
+          links[span.id] = url;
+          linkChars += cost;
+          taken = Math.min(chars.length, remaining - linkChars);
+          spans.push(span);
+        }
+        if (taken) units.push({ ...unit, text: chars.slice(0, taken).join(''), links: spans.length ? spans : undefined });
+      } else if (taken === chars.length) units.push(unit);
+      if (taken < chars.length) {
         material.sourceTruncated = true;
         material.truncationReason = 'source_chars';
         break;
       }
-      units.push(unit);
-      remaining -= chars.length;
+      remaining -= taken + linkChars;
     }
     material.units = units;
+    if (material.links) material.links = links;
     const metadataTruncated: string[] = [];
     if ([...material.title].length > 100) metadataTruncated.push('title');
     material.title = clip(material.title, 100);
@@ -103,6 +122,7 @@ export class SnapshotCache {
     const scope = material.scope;
     const header = [material.kind === 'bili' ? `视频：${line(material.title)}`
       : material.kind === 'search' ? `B站搜索：${line(scope.query)}（第${scope.page}页）` : `网页：${line(material.title)}`];
+    if (material.kind === 'page') header.push(`pageRef: ${this.encode({ id: start.id, unit: 0, offset: 0 })}`);
     if (material.kind === 'bili') header.push(`P${scope.page}：${line(scope.part)}；UP主：${line(scope.author)}；${scope.isAi ? 'AI' : '人工'}字幕（${line(scope.language)}）`);
     if (scope.kind === 'web-section') header.push(`章节：${line(scope.anchor)}`);
     const notices: string[] = [];
@@ -161,6 +181,8 @@ export class SnapshotCache {
           if (length >= taken * 0.8) taken = length;
         }
       }
+      const splitLink = unit.links?.find(span => previousOffset + taken > span.from && previousOffset + taken < span.to);
+      if (splitLink) taken = splitLink.from - previousOffset;
       content = previous + chars.slice(previousOffset, previousOffset + taken).join('');
       current.offset = previousOffset + taken;
       if (!taken) {
@@ -175,6 +197,32 @@ export class SnapshotCache {
     if (estimateTokens(text) > cap) throw new ReadError('source_limit', '返回信息超过配置上限。');
     return { text, hasMore: hasMore(), ...(hasMore() ? { nextCursor: this.encode(current) } : {}),
       sourceTruncated: material.sourceTruncated ?? false, estimatedTokens: estimateTokens(text), ...(failure ? { failed: true } : {}) };
+  }
+
+  pageCursor(pageRef: string, cursor: string | undefined, config: SurfingConfigSection): { key: string; cursor: string } {
+    const { id, snapshot } = this.pageSnapshot(pageRef, config);
+    if (cursor && this.decode(cursor).id !== id)
+      throw new ReadError('cursor_mismatch', '游标与网页引用不匹配，请使用该页回执中的 pageRef。');
+    return { key: snapshot.material.key, cursor: cursor ?? pageRef };
+  }
+
+  link(pageRef: string, linkId: string, config: SurfingConfigSection): string {
+    const { snapshot } = this.pageSnapshot(pageRef, config);
+    const url = snapshot.material.links?.[linkId];
+    if (!url) throw new ReadError('invalid_input', '该网页快照没有此链接编号，请使用正文中的编号。');
+    return url;
+  }
+
+  private pageSnapshot(pageRef: string, config: SurfingConfigSection): { id: string; snapshot: Snapshot } {
+    this.trim(config.cache.maxBytes);
+    const position = this.decode(pageRef);
+    const snapshot = this.snapshots.get(position.id);
+    if (!snapshot) throw new ReadError('cursor_expired', '网页引用已到期或被释放，请重新读取。');
+    if (position.unit !== 0 || position.offset !== 0 || snapshot.material.kind !== 'page')
+      throw new ReadError('cursor_mismatch', '需要网页回执中的 pageRef。');
+    this.snapshots.delete(position.id);
+    this.snapshots.set(position.id, snapshot);
+    return { id: position.id, snapshot };
   }
 
   nextSearch(cursor: string, expectedKey: string, config: SurfingConfigSection): { page: number; cursor?: string } | undefined {
@@ -215,11 +263,11 @@ export class SnapshotCache {
   }
 
   private decode(cursor: string): Position {
-    if (typeof cursor !== 'string' || cursor.length > 256) throw new ReadError('cursor_expired', '无效的续读游标。');
+    if (typeof cursor !== 'string' || cursor.length > 256) throw new ReadError('cursor_expired', '无效的网页引用或续读游标。');
     const [value, signature] = cursor.split('.');
     const expected = createHmac('sha256', this.signingKey).update(value ?? '').digest().subarray(0, 12);
     const actual = Buffer.from(signature ?? '', 'base64url');
-    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new ReadError('cursor_expired', '无效或其他实例的续读游标。');
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new ReadError('cursor_expired', '无效或其他实例的网页引用或续读游标。');
     const [id, unit, offset] = Buffer.from(value, 'base64url').toString().split(':');
     return { id, unit: Number(unit), offset: Number(offset) };
   }

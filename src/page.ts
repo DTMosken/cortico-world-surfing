@@ -1,7 +1,7 @@
 import { JSDOM } from 'jsdom';
 import { Readability } from '@mozilla/readability';
 import { ReadError, validatePublicUrl } from './network.ts';
-import type { Material, Unit } from './snapshots.ts';
+import type { LinkSpan, Material, Unit } from './snapshots.ts';
 
 export function pageKey(input: string): string { return 'page:' + validatePublicUrl(input).href; }
 
@@ -52,21 +52,68 @@ export function extractHtml(html: string, input: string): Material {
         root = document.createElement('div'); root.innerHTML = article.content;
       } else root = document.body;
     }
+    const links: Record<string, string> = {};
+    const markers = new WeakMap<Node, string>();
+    const anchors = [...(root.matches('a[href]') ? [root] : []), ...root.querySelectorAll('a[href]')];
+    let linkCount = 0;
+    for (const anchor of anchors) {
+      let target: URL;
+      try { target = validatePublicUrl(new URL(anchor.getAttribute('href')!, document.baseURI).href); }
+      catch { continue; }
+      const id = 'L' + ++linkCount;
+      links[id] = target.href;
+      if (!anchor.textContent?.trim()) anchor.append(document.createTextNode(
+        anchor.getAttribute('aria-label') || anchor.getAttribute('title') || anchor.querySelector('img')?.getAttribute('alt') || '链接'));
+      const marker = document.createTextNode(` [${id}]`);
+      markers.set(marker, id);
+      anchor.append(marker);
+    }
+    const renderText = (node: Node, preserveWhitespace = false): { text: string; links: LinkSpan[] } => {
+      const walker = document.createTreeWalker(node, dom.window.NodeFilter.SHOW_TEXT);
+      let current = node.nodeType === dom.window.Node.TEXT_NODE ? node : walker.nextNode();
+      let text = '', length = 0;
+      const spans: LinkSpan[] = [];
+      while (current) {
+        let value = current.textContent ?? '';
+        if (!preserveWhitespace) {
+          value = value.replace(/\s+/g, ' ');
+          if (text.endsWith(' ')) value = value.replace(/^ /, '');
+        }
+        const size = [...value].length;
+        const id = markers.get(current);
+        if (id) spans.push({ id, from: length + size - id.length - 2, to: length + size });
+        text += value; length += size;
+        current = walker.nextNode();
+      }
+      const leading = [...text.match(/^\s*/)![0]].length;
+      return { text: text.trim(), links: spans.map(span => ({ ...span, from: span.from - leading, to: span.to - leading })) };
+    };
     const body: Unit[] = [];
     let hasBody = false;
     const pending: Node[] = [root];
     while (pending.length) {
       const node = pending.pop()!;
       const element = node.nodeType === dom.window.Node.ELEMENT_NODE ? node as Element : undefined;
-      const block = element?.matches('h1,h2,h3,h4,h5,h6,p,pre,li,table,blockquote');
+      const block = element?.matches('h1,h2,h3,h4,h5,h6,p,pre,li,table,blockquote,a[href]');
       if (block || node.nodeType === dom.window.Node.TEXT_NODE) {
-        let text = element?.tagName === 'PRE' ? node.textContent?.trim() : node.textContent?.replace(/\s+/g, ' ').trim();
-        if (element?.tagName === 'TABLE') text = [...element.querySelectorAll('tr')].map(row =>
-          [...row.querySelectorAll('th,td')].map(cell => cell.textContent?.replace(/\s+/g,' ').trim()).join('\t')).join('\n');
-        if (!text) continue;
+        let rendered = element?.tagName === 'TABLE' ? { text: '', links: [] as LinkSpan[] } : renderText(node, element?.tagName === 'PRE');
+        if (element?.tagName === 'TABLE') {
+          let length = 0;
+          for (const [rowIndex, row] of [...element.querySelectorAll('tr')].entries()) {
+            if (rowIndex) { rendered.text += '\n'; length++; }
+            for (const [cellIndex, cell] of [...row.querySelectorAll('th,td')].entries()) {
+              if (cellIndex) { rendered.text += '\t'; length++; }
+              const value = renderText(cell);
+              rendered.links.push(...value.links.map(span => ({ ...span, from: span.from + length, to: span.to + length })));
+              rendered.text += value.text; length += [...value.text].length;
+            }
+          }
+        }
+        if (!rendered.text) continue;
         const heading = !!element && /^H[1-6]$/.test(element.tagName);
         const prefix = heading ? '#'.repeat(Number(element!.tagName.slice(1))) + ' ' : '';
-        body.push({ kind: 'text', text: prefix + text + '\n\n' });
+        body.push({ kind: 'text', text: prefix + rendered.text + '\n\n',
+          ...(rendered.links.length ? { links: rendered.links.map(span => ({ ...span, from: span.from + prefix.length, to: span.to + prefix.length })) } : {}) });
         hasBody ||= !heading;
       } else pending.push(...[...node.childNodes].reverse());
     }
@@ -74,6 +121,6 @@ export function extractHtml(html: string, input: string): Material {
     return { kind: 'page', key: pageKey(input), source: url.href, title: document.title || '网页',
       scope: { kind: section ? 'web-section' : 'web-page', ...(section ? { anchor: url.hash.slice(1) } : {}), extraction: 'html',
         ...(hasScripts && body.reduce((sum,unit)=>sum+(unit.kind==='text'?[...unit.text].length:0),0)<80 ? {mayNeedRendering:true} : {}) },
-      units: body };
+      units: body, ...(Object.keys(links).length ? { links } : {}) };
   } finally { dom.window.close(); }
 }

@@ -4,7 +4,7 @@ export function receipt(text: string) {
   const start = text.indexOf('\n\n');
   const footer = /\n\n(?=(?:标题信息已截短|仅取得静态网页文本|材料触及保留上限|续读 cursor:))/.exec(text.slice(start + 2));
   const content = text.slice(start + 2, footer ? start + 2 + footer.index : undefined);
-  return { text, content, nextCursor: /续读 cursor: ([\w.-]+)$/.exec(text)?.[1] };
+  return { text, content, pageRef: /^pageRef: ([\w.-]+)$/m.exec(text)?.[1], nextCursor: /续读 cursor: ([\w.-]+)$/.exec(text)?.[1] };
 }
 
 function field(number: number, input: string | Uint8Array): Buffer {

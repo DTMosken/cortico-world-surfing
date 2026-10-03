@@ -47,7 +47,7 @@ export const SURFING_LIMITS_CONFIG_GROUP: ConfigGroup = {
   schema: { type: 'object', title: '获取与缓存限制', properties: {
     'worlds.surfing.reading.maxSourceChars': {
       type: 'integer', title: '单份材料保留上限', minimum: 10000, maximum: 2000000,
-      'x-suffix': '字符', description: '正文和搜索结果合计；触限时标明材料不完整。新读取生效。',
+      'x-suffix': '字符', description: '正文、链接地址和搜索结果合计；触限时标明材料不完整。新读取生效。',
     },
     'worlds.surfing.network.maxDownloadBytes': {
       type: 'integer', title: '单次读取下载上限', minimum: 1048576, maximum: 67108864,

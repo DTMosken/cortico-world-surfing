@@ -4,7 +4,7 @@ import { SURFING } from '../src/definition.ts';
 import { SurfingWorld } from '../src/world.ts';
 import { SURFING_DEFAULTS, type SurfingConfigSection } from '../src/config.ts';
 import { estimateTokens } from '../src/snapshots.ts';
-import { PublicClient, waitWithSignal, type NetworkLimits } from '../src/network.ts';
+import { PublicClient, validatePublicUrl, waitWithSignal, type NetworkLimits } from '../src/network.ts';
 import { PlatformFixture, receipt } from './platform-fixture.ts';
 
 class FixtureClient extends PublicClient {
@@ -27,7 +27,7 @@ function context(): WorldContext<SurfingConfigSection> {
 
 test('独立 World 在没有 learn 或凭证时提供工具、登录和可调面板', () => {
   const world = new SurfingWorld(context());
-  expect(world.tools().map(x=>x.name)).toEqual(['surfing_read_page','surfing_read_bili','surfing_search_bili']);
+  expect(world.tools().map(x=>x.name)).toEqual(['surfing_read_page','surfing_read_bili','surfing_search_bili','surfing_open_link']);
   const groups = world.console().config!;
   const fields = groups.flatMap(group => Object.keys(group.schema.properties));
   expect(fields).toContain('worlds.surfing.reading.maxResponseEstimatedTokens');
@@ -138,4 +138,74 @@ test('取消首个搜索等待者后，其他调用可在自己的时限内继�
   expect(complete.content).toContain('第2页');
   expect(result(await tool.handler(args,call))).toEqual(complete);
   await world.stop();
+});
+
+class PageFixtureClient extends PublicClient {
+  requests: string[] = [];
+  offline = false;
+  constructor(private readonly html: Record<string, string>) { super(async () => [{ address: '127.0.0.1', family: 4 }]); }
+  override operation(limits: NetworkLimits, parent?: AbortSignal) {
+    const guarded = super.operation(limits, parent);
+    return { signal: guarded.signal, downloadedBytes: 0, close: () => guarded.close(), get: async (input: string) => {
+      const url = validatePublicUrl(input);
+      if (url.hostname !== 'example.org') return guarded.get(input);
+      this.requests.push(url.pathname);
+      if (this.offline) throw new Error('fixture offline');
+      return { url: url.href, status: this.html[url.pathname] ? 200 : 404, headers: { 'content-type': 'text/html' },
+        body: Buffer.from(this.html[url.pathname] ?? '') };
+    } };
+  }
+}
+
+test('主agent按正文编号打开目标页，目标 pageRef 续读不再请求网络', async () => {
+  const ctx = context(); ctx.cfg.reading.maxResponseEstimatedTokens = 1024;
+  const client = new PageFixtureClient({
+    '/article': '<title>文章</title><nav><a href="/menu">菜单</a></nav><main><p>详情参见<a href="/guide#install">安装指南</a>。</p></main>',
+    '/guide': `<title>指南</title><main><h2 id="install">安装</h2><p>${'正文🌌'.repeat(2000)}<a href="/last">末尾资料</a></p><h2>其他章节</h2><p>未选中。</p></main>`,
+    '/last': '<main><p>最后一页。</p></main>',
+  });
+  const world = new SurfingWorld(ctx, client); const call = { role: 'test', log: {} as never };
+  const read = world.tools().find(x => x.name === 'surfing_read_page')!;
+  const open = world.tools().find(x => x.name === 'surfing_open_link')!;
+  try {
+    const first = result(await read.handler({ url: 'https://example.org/article' }, call));
+    expect(first.failed).toBe(false); expect(first.content).toContain('安装指南 [L1]');
+    expect(first.text).not.toMatch(/菜单|https?:\/\//);
+    let target = result(await open.handler({ pageRef: first.pageRef, linkId: 'L1' }, call));
+    expect(target.failed).toBe(false); expect(target.pageRef).not.toBe(first.pageRef);
+    expect(target.nextCursor).toBeTruthy(); expect(target.text).toContain('章节：install');
+    let restored = target.content; const targetRef = target.pageRef;
+    client.offline = true;
+    ctx.cfg.reading.maxResponseEstimatedTokens = 2048;
+    while (target.nextCursor) {
+      target = result(await read.handler({ pageRef: targetRef, cursor: target.nextCursor }, call));
+      expect(target.failed).toBe(false); expect(target.pageRef).toBe(targetRef);
+      expect(estimateTokens(target.text)).toBeLessThanOrEqual(ctx.cfg.reading.maxResponseEstimatedTokens);
+      restored += target.content;
+    }
+    expect(restored).toBe('## 安装\n\n' + '正文🌌'.repeat(2000) + '末尾资料 [L1]\n\n');
+    expect(restored).not.toContain('未选中');
+    expect(client.requests).toEqual(['/article', '/guide']);
+    const mismatch = result(await read.handler({ pageRef: first.pageRef, cursor: targetRef }, call));
+    expect(mismatch.failed).toBe(true); expect(mismatch.text).toContain('不匹配');
+    client.offline = false;
+    const last = result(await open.handler({ pageRef: targetRef, linkId: 'L1' }, call));
+    expect(last.failed).toBe(false); expect(last.content).toContain('最后一页。');
+  } finally { await world.stop(); }
+});
+
+test('打开编号链接继续拒绝解析到内网的域名，无效编号不发出请求', async () => {
+  const client = new PageFixtureClient({ '/article': '<main><p><a href="https://inside.example.net/">相关资料</a><a href="http://127.0.0.1/">本机</a></p></main>' });
+  const world = new SurfingWorld(context(), client); const call = { role: 'test', log: {} as never };
+  const read = world.tools().find(x => x.name === 'surfing_read_page')!;
+  const open = world.tools().find(x => x.name === 'surfing_open_link')!;
+  try {
+    const page = result(await read.handler({ url: 'https://example.org/article' }, call));
+    expect(page.content).toContain('相关资料 [L1]'); expect(page.content).not.toContain('[L2]');
+    const blocked = result(await open.handler({ pageRef: page.pageRef, linkId: 'L1' }, call));
+    expect(blocked.failed).toBe(true); expect(blocked.text).toContain('公网地址');
+    const missing = result(await open.handler({ pageRef: page.pageRef, linkId: 'L99' }, call));
+    expect(missing.failed).toBe(true); expect(missing.text).toContain('没有此链接编号');
+    expect(client.requests).toEqual(['/article']);
+  } finally { await world.stop(); }
 });

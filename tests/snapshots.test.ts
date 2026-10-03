@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 import { SnapshotCache, estimateTokens, type Material } from '../src/snapshots.ts';
 import { SURFING_DEFAULTS } from '../src/config.ts';
+import { extractHtml } from '../src/page.ts';
 import { receipt } from './platform-fixture.ts';
 
 test('完整回执受限且改变预算续读不丢字、不破坏 Unicode', () => {
@@ -144,4 +145,60 @@ test('搜索词身份不裁切，其他显示字段裁切时明确列出', () =>
   const cache = new SnapshotCache(); const result = cache.read(cache.put(source,cfg),source.key,cfg);
   expect(result.text).toContain(source.scope.query);
   expect(result.text).toContain('标题信息已截短');
+});
+
+test('编号跨分页保持完整与稳定，pageRef 可续读并解析实际目标', () => {
+  const cfg = structuredClone(SURFING_DEFAULTS); cfg.reading.maxResponseEstimatedTokens = 1024;
+  const source = extractHtml(`<main><p>${Array.from({ length: 500 }, (_, i) => `正文🌌 <a href="/next/${i}">章节${i}</a> `).join('')}</p></main>`, 'https://example.org/article');
+  const cache = new SnapshotCache(); const first = cache.put(source, cfg);
+  let cursor: string | undefined = first, pageRef: string | undefined;
+  let restored = ''; let pages = 0;
+  while (cursor) {
+    const page = cache.read(cursor, source.key, cfg);
+    const parsed = receipt(page.text); pageRef ??= parsed.pageRef;
+    expect(parsed.pageRef).toBe(pageRef);
+    expect(estimateTokens(page.text)).toBeLessThanOrEqual(cfg.reading.maxResponseEstimatedTokens);
+    expect(parsed.content).not.toMatch(/\[L\d*$|^\d+\]/);
+    for (const match of parsed.content.matchAll(/\[(L\d+)\]/g)) {
+      expect(cache.link(pageRef!, match[1], cfg)).toBe(source.links![match[1]]);
+    }
+    const position = cache.pageCursor(pageRef!, cursor, cfg);
+    expect(cache.read(position.cursor, position.key, cfg).text).toBe(page.text);
+    restored += parsed.content; cursor = parsed.nextCursor; pages++;
+  }
+  expect(pages).toBeGreaterThan(2);
+  expect(restored).toBe(source.units.filter(x => x.kind === 'text').map(x => x.text).join(''));
+  expect(cache.pageCursor(pageRef!, undefined, cfg).cursor).toBe(first);
+  expect(restored).not.toContain('https://');
+});
+
+test('网页引用不能配另一份快照的 cursor，链接随快照到期或清空', () => {
+  const cfg = structuredClone(SURFING_DEFAULTS); let now = 0;
+  const cache = new SnapshotCache(() => now);
+  const source = extractHtml('<main><p><a href="next">下一页</a></p></main>', 'https://example.org/article');
+  const first = cache.put(source, cfg), second = cache.put(source, cfg);
+  expect(() => cache.pageCursor(first, second, cfg)).toThrow(/不匹配/);
+  expect(() => cache.link(first, 'L99', cfg)).toThrow(/没有此链接编号/);
+  expect(() => cache.link(first.slice(0,-1) + '!', 'L1', cfg)).toThrow(/无效/);
+  expect(() => new SnapshotCache().link(first, 'L1', cfg)).toThrow(/其他实例/);
+  now = cfg.cache.ttlMs + 1;
+  expect(() => cache.link(first, 'L1', cfg)).toThrow(/到期/);
+  const fresh = cache.put(source, cfg); cache.clear();
+  expect(() => cache.link(fresh, 'L1', cfg)).toThrow(/释放/);
+});
+
+test('链接地址计入材料与缓存上限，截断不会留下半个编号或丢失地址的标记', () => {
+  const source = extractHtml('<main><p>甲<a href="next">乙</a>丙。</p></main>', 'https://example.org/article');
+  const cfg = structuredClone(SURFING_DEFAULTS); cfg.reading.maxSourceChars = 8;
+  const cache = new SnapshotCache(); const ref = cache.put(source, cfg);
+  const limited = cache.read(ref, source.key, cfg);
+  expect(limited.sourceTruncated).toBe(true);
+  expect(receipt(limited.text).content).not.toMatch(/\[L|丙/);
+  expect(() => cache.link(ref, 'L1', cfg)).toThrow(/没有此链接编号/);
+  cfg.reading.maxSourceChars = 300000;
+  const complete = cache.read(cache.put(source, cfg), source.key, cfg);
+  expect(complete.sourceTruncated).toBe(false); expect(complete.text).toContain('[L1]');
+  cfg.cache.maxBytes = 500;
+  const large = extractHtml(`<main><p><a href="https://example.org/${'x'.repeat(1000)}">文章</a></p></main>`, 'https://example.org/article');
+  expect(() => cache.put(large, cfg)).toThrow(/缓存上限/);
 });
