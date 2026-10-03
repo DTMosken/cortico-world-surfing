@@ -12,7 +12,7 @@ export interface SurfingConfigSection {
 
 export const SURFING_DEFAULTS: SurfingConfigSection = {
   enabled: false,
-  reading: { maxResponseEstimatedTokens: 4096, maxSourceChars: 300000 },
+  reading: { maxResponseEstimatedTokens: 3000, maxSourceChars: 300000 },
   bili: { subtitleGroupSec: 30, maxSubtitleRetries: 2, subtitleRetryDelayMs: 1000 },
   network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 20000 },
   cache: { ttlMs: 900000, maxBytes: 32 * 1024 * 1024 },

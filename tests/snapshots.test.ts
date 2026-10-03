@@ -47,7 +47,7 @@ test('搜索记录不会切坏；提高预算后可继续取回', () => {
   expect(limited.failed).toBe(true);
   expect(limited.text).toMatch(/^\[tool failed\]/);
   expect(limited.hasMore).toBe(true);
-  cfg.reading.maxResponseEstimatedTokens = 4096;
+  cfg.reading.maxResponseEstimatedTokens = 3000;
   const complete = cache.read(limited.nextCursor!, 'page:fixture', cfg);
   expect(complete.text).toContain(title);
   expect(complete.hasMore).toBe(false);
