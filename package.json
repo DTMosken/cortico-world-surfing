@@ -9,7 +9,7 @@
   "engines": { "node": "^22.12.0 || >=24.0.0" },
   "packageManager": "pnpm@11.5.0",
   "main": "./src/definition.ts",
-  "cortico": { "kind": "world", "api": 5, "displayName": "Surfing · 网页与视频阅读" },
+  "cortico": { "kind": "world", "api": 5, "displayName": "网上冲浪" },
   "files": ["src", "dist", "scripts/install-browser.mjs", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"],
   "scripts": {
     "test": "node scripts/build-engine.mjs && vitest run",

@@ -3,7 +3,7 @@ import { SURFING_DEFAULTS, validateConfig, type SurfingConfigSection } from './c
 import { SurfingWorld } from './world.ts';
 
 export const SURFING: WorldDefinition<SurfingConfigSection> = {
-  id: 'surfing', label: 'Surfing · 网页与视频阅读',
+  id: 'surfing', label: '网上冲浪',
   defaults: () => structuredClone(SURFING_DEFAULTS),
   preflight: ctx => validateConfig(ctx.cfg),
   create: ctx => new SurfingWorld(ctx),

@@ -60,7 +60,7 @@ export class SurfingWorld implements World {
   private async read(name: string, args: Record<string, unknown>, call: ToolCallContext): Promise<ToolOutcome> {
     let operation: ReadOperation | undefined;
     try {
-      if (this.stopped) throw new ReadError('access_denied', 'Surfing 已停止。');
+      if (this.stopped) throw new ReadError('access_denied', '网上冲浪已停止。');
       const config = structuredClone(this.ctx.cfg);
       validateConfig(config);
       if (args.cursor !== undefined && typeof args.cursor !== 'string') throw new ReadError('cursor_expired', '续读游标必须为字符串。');
@@ -133,7 +133,7 @@ export class SurfingWorld implements World {
   console(): WorldConsoleDecl {
     const override = join(this.ctx.botDir, 'prompts', 'worlds', 'surfing', 'ENV_PROMPT.md');
     return {
-      label: 'Surfing · 网页与视频阅读',
+      label: '网上冲浪',
       lamps: [{ label: '最近读取', state: this.last ? (this.last.failed ? 'error' : 'online') : 'offline',
         hint: this.last?.status ?? '尚未读取' }],
       badges: [
@@ -143,7 +143,7 @@ export class SurfingWorld implements World {
         { label: '文本缓存', value: Math.ceil(this.cache.sizeBytes / 1024) + ' KiB' },
       ],
       config: [SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP],
-      promptDocs: [{ key: 'worlds.surfing.envPrompt', title: 'Surfing 环境提示词', description: '网页、视频与学习工具的使用指导。',
+      promptDocs: [{ key: 'worlds.surfing.envPrompt', title: '网上冲浪环境提示词', description: '网页、视频与学习工具的使用指导。',
         path: existsSync(override) ? override : ENV_PROMPT_FILE, deploymentPath: override, role: 'envPrompt',
         vars: [
           { name: 'surfing.maxResponseEstimatedTokens', description: '本次完整回执的估算 token 上限。' },
