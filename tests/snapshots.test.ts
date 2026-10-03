@@ -127,3 +127,11 @@ test('目录纳入源字符上限，并标明无法显示完整目录', () => {
   expect(result.sourceTruncated).toBe(true);
   expect(result.outlinePartial).toBe(true);
 });
+
+test('搜索词身份不裁切，其他显示字段裁切时明确列出', () => {
+  const cfg = structuredClone(SURFING_DEFAULTS); const source = material([{kind:'text',text:'原文。'}]);
+  source.title = '长标题'.repeat(200); source.scope = {kind:'video-search',query:'查询'.repeat(100),part:'分P标题'.repeat(100)};
+  const cache = new SnapshotCache(); const result = JSON.parse(cache.read(cache.put(source,cfg),source.key,cfg).text);
+  expect(result.scope.query).toBe(source.scope.query);
+  expect(result.metadataTruncated).toEqual(['title','scope.part']);
+});

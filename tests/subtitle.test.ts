@@ -16,3 +16,8 @@ test('字幕正文仅接受 HTTPS 的字幕 CDN，异常地址保留为协议错
     'https://subtitle.bilibili.com/unknown','https://aisubtitle.hdslb.com:8443/a.json'])
     expect(()=>resolveSubtitleUrl(url)).toThrow(/地址/);
 });
+
+test('存在轨道但缺正文地址时报告协议错误，不能误报空轨道', () => {
+  expect(()=>parseSubtitleTracks(Uint8Array.from([10,9,26,7,26,5,97,105,45,122,104])))
+    .toThrowError(expect.objectContaining({kind:'protocol_error'}));
+});

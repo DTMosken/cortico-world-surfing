@@ -41,15 +41,18 @@ function fields(bytes: Uint8Array): Field[] {
 export function parseSubtitleTracks(bytes: Uint8Array): SubtitleTrack[] {
   const data = fields(bytes).find(field => field.number === 1 && field.value instanceof Uint8Array);
   if (!data || !(data.value instanceof Uint8Array)) throw new ReadError('protocol_error', '字幕响应缺少数据字段。');
-  return fields(data.value).filter(field => field.number === 3 && field.value instanceof Uint8Array).map(field => {
-    const entries = fields(field.value as Uint8Array);
+  return fields(data.value).filter(field => field.number === 3).map(field => {
+    if (!(field.value instanceof Uint8Array)) throw new ReadError('protocol_error','字幕轨道字段格式发生变化。');
+    const entries = fields(field.value);
     const text = (number: number) => {
       const value = entries.find(entry => entry.number === number && entry.value instanceof Uint8Array)?.value;
       try { return value instanceof Uint8Array ? new TextDecoder('utf-8', { fatal: true }).decode(value) : ''; }
       catch { throw new ReadError('protocol_error', '字幕轨道包含无效文本。'); }
     };
-    return { language: text(3), label: text(4), url: text(5) };
-  }).filter(track => track.language && track.url);
+    const track = { language: text(3), label: text(4), url: text(5) };
+    if (!track.language || !track.url) throw new ReadError('protocol_error','字幕轨道缺少语言或正文地址。');
+    return track;
+  });
 }
 
 export function resolveSubtitleUrl(input: string): string {

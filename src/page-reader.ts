@@ -49,11 +49,15 @@ export class PageReader {
     if (type && !type.includes('text/html') && !type.includes('application/xhtml+xml'))
       throw new ReadError('content_unavailable', '首版仅读取网页和公开文本，未提取此文件格式。');
     let material: Material;
-    try { material = await extract(html, target.href, operation.signal); }
+    try {
+      material = await extract(html, target.href, operation.signal);
+      if (material.scope.mayNeedRendering) throw new ReadError('content_unavailable','页面含脚本而静态正文很短，需要检查渲染结果。');
+    }
     catch (error) {
       if (!(error instanceof ReadError) || error.kind !== 'content_unavailable') throw error;
       const rendered = await this.renderer.render(target.href, operation, maxBytes);
       material = await extract(rendered.html, rendered.url, operation.signal);
+      delete material.scope.mayNeedRendering;
       material.scope.extraction = 'rendered-html';
     }
     material.key = pageKey(input);

@@ -5,7 +5,7 @@ import type { ToolDef, ToolOutcome, ToolCallContext, World, WorldConsoleDecl, Wo
 import type { WorldContext } from 'cortico/world.ts';
 import { SURFING_DEFAULTS, SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP, validateConfig, type SurfingConfigSection } from './config.ts';
 import { BiliClient, biliKey, type BiliInput } from './bili.ts';
-import { PublicClient, type ReadOperation } from './network.ts';
+import { PublicClient, waitWithSignal, type ReadOperation } from './network.ts';
 import { PageReader, pageKey } from './page-reader.ts';
 import { SnapshotCache, serializeReceipt, type Material } from './snapshots.ts';
 import { ReadError, asReadError } from './errors.ts';
@@ -19,6 +19,7 @@ export class SurfingWorld implements World {
   private readonly cache = new SnapshotCache();
   private readonly bili = new BiliClient();
   private readonly pages = new PageReader();
+  private readonly pendingSearches = new Map<string,Promise<string>>();
   private lifecycle = new AbortController();
   private stopped = false;
   private last?: { status: string; failed: boolean; estimatedTokens: number; sourceTruncated: boolean };
@@ -65,11 +66,21 @@ export class SurfingWorld implements World {
           if (next?.cursor) cursor = next.cursor;
           else if (next) {
             const original = cursor;
-            material = await this.bili.search(query, next.page, operation);
-            operation.signal.throwIfAborted();
-            cursor = this.cache.put(material, config);
-            this.cache.rememberSearchNext(original, cursor);
-            material = undefined;
+            let pending = this.pendingSearches.get(original);
+            if (!pending) {
+              pending = (async()=>{
+                const material = await this.bili.search(query,next.page,operation!);
+                operation!.signal.throwIfAborted();
+                const created = this.cache.put(material,config);
+                this.cache.rememberSearchNext(original,created);
+                return created;
+              })();
+              this.pendingSearches.set(original,pending);
+              void pending.finally(()=>{
+                if (this.pendingSearches.get(original)===pending) this.pendingSearches.delete(original);
+              }).catch(()=>{});
+            }
+            cursor = await waitWithSignal(pending,operation.signal);
           }
         } else material = await this.bili.search(query, 1, operation);
       }
@@ -113,7 +124,7 @@ export class SurfingWorld implements World {
 
   async start(_host: WorldHost): Promise<void> { this.lifecycle = new AbortController(); this.stopped = false; }
   async stop(): Promise<void> {
-    this.stopped = true; this.lifecycle.abort(); this.cache.clear();
+    this.stopped = true; this.lifecycle.abort(); this.cache.clear(); this.pendingSearches.clear();
     await this.pages.stop();
   }
 }

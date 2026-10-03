@@ -40,10 +40,10 @@ export function isPublicAddress(address: string): boolean {
   } catch { return false; }
 }
 
-function withSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  signal.throwIfAborted();
+export function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const abort = () => reject(signal.reason);
+    if (signal.aborted) { void promise.catch(()=>{}); abort(); return; }
     signal.addEventListener('abort', abort, { once: true });
     promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
   });
@@ -80,7 +80,7 @@ class Operation implements ReadOperation {
       for (let hops = 0; hops <= 5; hops++) {
         this.signal.throwIfAborted();
         if (options.allowHost && !options.allowHost(url.hostname)) throw new ReadError('address_denied', '目标站点不在本次读取范围内。');
-        const addresses = await withSignal(this.resolve(url.hostname), this.signal);
+        const addresses = await waitWithSignal(this.resolve(url.hostname), this.signal);
         if (!addresses.length || addresses.some(a => !isPublicAddress(a.address)))
           throw new ReadError('address_denied', '域名未解析到允许的公网地址。');
         const selected = addresses.find(a => a.family === 4) ?? addresses[0];
@@ -98,6 +98,7 @@ class Operation implements ReadOperation {
     const headers: Record<string, string> = {
       'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
       'accept-encoding': 'gzip, deflate, br',
+      accept: '*/*', 'accept-language': '*',
     };
     for (const [key, value] of Object.entries(options.headers ?? {})) {
       if (['accept', 'accept-language', 'referer', 'user-agent'].includes(key.toLowerCase())) headers[key.toLowerCase()] = value;
@@ -141,11 +142,14 @@ class Operation implements ReadOperation {
           } catch (error) { request.destroy(); response.destroy(); decoder?.destroy(); reject(error); }
         })();
       });
-      request.on('socket', socket => socket.once('connect', () => {
-        const peer = socket.remoteAddress;
-        if (!peer || ipaddr.process(peer).toString() !== ipaddr.process(selected.address).toString())
-          request.destroy(new ReadError('address_denied', '实际连接地址与已核验地址不一致。'));
-      }));
+      request.on('socket', socket => {
+        const verify = () => {
+          const peer = socket.remoteAddress;
+          if (!peer || ipaddr.process(peer).toString() !== ipaddr.process(selected.address).toString())
+            request.destroy(new ReadError('address_denied', '实际连接地址与已核验地址不一致。'));
+        };
+        if (socket.remoteAddress) verify(); else socket.once('connect', verify);
+      });
       request.on('error', reject);
       request.end();
     });

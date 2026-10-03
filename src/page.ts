@@ -11,6 +11,7 @@ export function extractHtml(html: string, input: string): Material {
   const dom = new JSDOM(html, { url: url.href });
   const document = dom.window.document;
   try {
+    const hasScripts = !!document.querySelector('script[src],script:not([type]),script[type="module"],script[type="text/javascript"],script[type="application/javascript"]');
     document.querySelectorAll('script,style,noscript,nav,header,footer,form,[hidden],[aria-hidden="true"]').forEach(element => element.remove());
     let root: Element | null = document.querySelector('main,article,[role="main"],#apicontent');
     let section = false;
@@ -20,11 +21,17 @@ export function extractHtml(html: string, input: string): Material {
       catch { throw new ReadError('invalid_input', 'URL 的章节锚点无效。'); }
       const target = document.getElementById(anchor) ?? [...document.querySelectorAll('a[name]')].find(element => element.getAttribute('name') === anchor);
       if (!target) throw new ReadError('content_unavailable', '页面未找到指定锚点；未读取其他章节。');
-      const heading = target.closest('h1,h2,h3,h4,h5,h6');
+      const container = root?.contains(target) ? root : document.body;
+      const headings = [...container.querySelectorAll('h1,h2,h3,h4,h5,h6')];
+      const following = headings.find(element=>!!(target.compareDocumentPosition(element)&dom.window.Node.DOCUMENT_POSITION_FOLLOWING));
+      let heading = target.closest('h1,h2,h3,h4,h5,h6');
+      if (!heading && !target.textContent?.trim() && following) {
+        const between = document.createRange(); between.setStartAfter(target); between.setEndBefore(following);
+        if (!between.toString().trim()) heading = following;
+      }
       if (heading) {
-        const container = root?.contains(heading) ? root : document.body;
         const level = Number(heading.tagName.slice(1));
-        const next = [...container.querySelectorAll('h1,h2,h3,h4,h5,h6')].find(element =>
+        const next = headings.find(element =>
           element !== heading && Number(element.tagName.slice(1)) <= level
           && !!(heading.compareDocumentPosition(element) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING));
         const range = document.createRange();
@@ -32,7 +39,12 @@ export function extractHtml(html: string, input: string): Material {
         if (next) range.setEndBefore(next); else range.setEnd(container, container.childNodes.length);
         root = document.createElement('div');
         root.append(range.cloneContents());
-      } else root = target;
+      } else if (target.textContent?.trim()) root = target;
+      else {
+        const range = document.createRange(); range.setStartAfter(target);
+        if (following) range.setEndBefore(following); else range.setEnd(container,container.childNodes.length);
+        root = document.createElement('div'); root.append(range.cloneContents());
+      }
       section = true;
     }
     if (!root) {
@@ -74,7 +86,8 @@ export function extractHtml(html: string, input: string): Material {
       return { text: element.textContent?.trim() ?? '', url: target.href };
     });
     return { kind: 'page', key: pageKey(input), source: url.href, title: document.title || '网页',
-      scope: { kind: section ? 'web-section' : 'web-page', ...(section ? { anchor: url.hash.slice(1) } : {}), extraction: 'html' },
+      scope: { kind: section ? 'web-section' : 'web-page', ...(section ? { anchor: url.hash.slice(1) } : {}), extraction: 'html',
+        ...(hasScripts && body.reduce((sum,unit)=>sum+(unit.kind==='text'?[...unit.text].length:0),0)<80 ? {mayNeedRendering:true} : {}) },
       units: [...body, ...links.values()], outline };
   } finally { dom.window.close(); }
 }

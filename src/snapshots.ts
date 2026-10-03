@@ -16,6 +16,7 @@ export interface Material {
   sourceTruncated?: boolean; truncationReason?: string;
   nextSearchPage?: number;
   sentenceTimes?: Array<{ from: number; to: number }>;
+  metadataTruncated?: string[];
 }
 interface Snapshot { material: Material; size: number; expiresAtMs: number; materialEstimatedTokens: number; nextSearchCursor?: string }
 interface Position { id: string; unit: number; offset: number }
@@ -61,9 +62,18 @@ export class SnapshotCache {
       remaining -= chars.length;
     }
     material.units = units;
+    const metadataTruncated: string[] = [];
+    if ([...material.title].length > 100) metadataTruncated.push('title');
     material.title = clip(material.title, 100);
-    material.scope = Object.fromEntries(Object.entries(material.scope).slice(0, 20)
-      .map(([key, value]) => [key, typeof value === 'string' ? clip(value, 120) : value]));
+    const scope = Object.entries(material.scope);
+    if (scope.length > 20) metadataTruncated.push('scope');
+    material.scope = Object.fromEntries(scope.slice(0,20).map(([key,value])=>{
+      if (typeof value !== 'string') return [key,value];
+      const limited = clip(value,key==='query'?240:120);
+      if (limited !== value) metadataTruncated.push('scope.'+key);
+      return [key,limited];
+    }));
+    if (metadataTruncated.length) material.metadataTruncated = metadataTruncated;
     if (material.outline) {
       const outline: NonNullable<Material['outline']> = [];
       for (const item of material.outline) {
@@ -103,6 +113,7 @@ export class SnapshotCache {
       status: 'ok', source: sourceUrlOmitted ? new URL(material.source).origin : material.source,
       ...(sourceUrlOmitted ? { sourceUrlOmitted: true } : {}), title: material.title, scope: material.scope,
       materialEstimatedTokens: snapshot.materialEstimatedTokens,
+      ...(material.metadataTruncated ? {metadataTruncated:material.metadataTruncated} : {}),
       content: '', links: [], parts: [], results: [],
       sourceTruncated: material.sourceTruncated ?? false,
       ...(material.truncationReason ? { truncationReason: material.truncationReason } : {}),

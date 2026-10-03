@@ -75,3 +75,25 @@ test('搜索仅在跨远端页时请求平台，重放边界游标返回相同�
   expect(replay).toEqual(second); expect(fixture.searchPages).toEqual([1,2]);
   await world.stop();
 });
+
+test('同一搜索边界并发续读只获取一份下一页快照', async () => {
+  class RacingFixture extends PlatformFixture {
+    generation = 0;
+    override async get(url: string) {
+      const target = new URL(url);
+      if (!target.pathname.endsWith('/search/type') || target.searchParams.get('page')!=='2') return super.get(url);
+      const generation = ++this.generation; await new Promise(resolve=>setTimeout(resolve,20));
+      const response = await super.get(url); const body = JSON.parse(response.body.toString());
+      body.data.result[0].title = '第2页第'+generation+'次快照';
+      return {...response,body:Buffer.from(JSON.stringify(body))};
+    }
+  }
+  const fixture = new RacingFixture(); const world = new SurfingWorld(context(),new FixtureClient(fixture));
+  const tool = world.tools()[2]; const call = {role:'test',log:{} as never};
+  const first = result(await tool.handler({query:'竞赛'},call)); const args = {query:'竞赛',cursor:first.nextCursor};
+  const [left,right] = (await Promise.all([tool.handler(args,call),tool.handler(args,call)])).map(result);
+  expect(left).toEqual(right); expect(left.results[0].title).toContain('第1次快照');
+  expect(fixture.searchPages).toEqual([1,2]);
+  expect(result(await tool.handler(args,call))).toEqual(left);
+  await world.stop();
+});

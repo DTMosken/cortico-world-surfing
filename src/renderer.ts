@@ -2,11 +2,13 @@
 import { createServer, type Server } from 'node:net';
 import { chromium, type Browser } from 'playwright';
 import { ReadError, asReadError } from './errors.ts';
-import { validatePublicUrl, type ReadOperation } from './network.ts';
+import { validatePublicUrl, waitWithSignal, type ReadOperation } from './network.ts';
 
 export class Renderer {
   private browser?: Promise<Browser>;
   private proxy?: Server;
+
+  constructor(private readonly launchBrowser: typeof chromium.launch = options=>chromium.launch(options)) {}
 
   private launch(): Promise<Browser> {
     if (!this.browser) this.browser = (async () => {
@@ -15,14 +17,15 @@ export class Renderer {
       await new Promise<void>((resolve, reject) => { proxy.once('error', reject); proxy.listen(0, '127.0.0.1', resolve); });
       const port = (proxy.address() as { port: number }).port;
       try {
-        return await chromium.launch({ headless: true, timeout: 10000,
+        return await this.launchBrowser({ headless: true, timeout: 10000,
           proxy: { server: `http://127.0.0.1:${port}`, bypass: '<-loopback>' },
           args: ['--host-resolver-rules=MAP * ~NOTFOUND', '--disable-background-networking', '--disable-component-update',
             '--disable-sync', '--disable-extensions', '--disable-default-apps', '--disable-features=DnsOverHttps,WebTransport',
             '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],
         });
       } catch {
-        proxy.close(); this.proxy = undefined; this.browser = undefined;
+        proxy.close();
+        if (this.proxy === proxy) { this.proxy = undefined; this.browser = undefined; }
         throw new ReadError('browser_unavailable', '动态网页读取需要 Chromium；在扩展目录执行 pnpm install:browser 后重试。');
       }
     })();
@@ -32,9 +35,14 @@ export class Renderer {
   async render(input: string, operation: ReadOperation, maxBytes: number): Promise<{ html: string; url: string }> {
     validatePublicUrl(input);
     operation.signal.throwIfAborted();
-    const browser = await this.launch();
+    let browser: Browser;
+    try { browser = await waitWithSignal(this.launch(),operation.signal); }
+    catch (error) { throw asReadError(error); }
     operation.signal.throwIfAborted();
-    const context = await browser.newContext({ acceptDownloads: false, serviceWorkers: 'block', storageState: undefined });
+    const opening = browser.newContext({ acceptDownloads: false, serviceWorkers: 'block', storageState: undefined });
+    let context;
+    try { context = await waitWithSignal(opening,operation.signal); }
+    catch (error) { void opening.then(value=>value.close()).catch(()=>{}); throw asReadError(error); }
     const abort = () => { void context.close().catch(() => {}); };
     operation.signal.addEventListener('abort', abort, { once: true });
     let navigationError: ReadError | undefined;
@@ -45,6 +53,10 @@ export class Renderer {
         for (const key of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'WebTransport']) {
           Object.defineProperty(globalThis, key, { value: undefined, configurable: false, writable: false });
         }
+        for (const key of ['submit','requestSubmit']) {
+          Object.defineProperty(HTMLFormElement.prototype,key,{value:()=>{},configurable:false,writable:false});
+        }
+        document.addEventListener('submit',event=>event.preventDefault(),true);
       });
       await context.route('**/*', async route => {
         const request = route.request();
@@ -80,10 +92,9 @@ export class Renderer {
 
   async stop(): Promise<void> {
     const browser = this.browser;
-    this.browser = undefined;
-    await browser?.then(value => value.close()).catch(() => {});
     const proxy = this.proxy;
-    this.proxy = undefined;
+    this.browser = undefined; this.proxy = undefined;
+    await browser?.then(value => value.close()).catch(() => {});
     if (proxy) await new Promise<void>(resolve => proxy.close(() => resolve()));
   }
 }

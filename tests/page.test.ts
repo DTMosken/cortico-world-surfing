@@ -32,3 +32,10 @@ test('正文里的 div、零散文字和表格内容都保留，链接尊重 bas
   expect(body).toContain('项目\t值\n甲\t1');
   expect(material.units.filter(x=>x.kind==='link')).toContainEqual({kind:'link',value:{text:'后续',url:'https://example.org/base/next'}});
 });
+
+test('空命名锚点定位后面的章节，截在下一同级标题之前', () => {
+  const material = extractHtml('<main><a name="intro"></a><h2>简介</h2><p>所选正文。</p><h2>下一章</h2><p>其他正文。</p></main>','https://example.org/article#intro');
+  const content = material.units.filter(x=>x.kind==='text').map(x=>x.text).join('');
+  expect(content).toContain('所选正文。'); expect(content).not.toContain('其他正文。');
+  expect(material.scope.kind).toBe('web-section');
+});
