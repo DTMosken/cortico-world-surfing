@@ -113,21 +113,6 @@ function extractHtml(html, input) {
       } else pending.push(...[...node.childNodes].reverse());
     }
     if (!hasBody) throw new ReadError("content_unavailable", "\u672A\u53D6\u5F97\u7F51\u9875\u6B63\u6587\uFF0C\u53EF\u80FD\u9700\u8981 JavaScript \u6216\u9875\u9762\u9650\u5236\u4E86\u8BBF\u95EE\u3002");
-    const links = /* @__PURE__ */ new Map();
-    for (const element of root.querySelectorAll("a[href]")) {
-      const text = element.textContent?.replace(/\s+/g, " ").trim() || element.getAttribute("aria-label");
-      if (!text) continue;
-      try {
-        const target = validatePublicUrl(new URL(element.getAttribute("href"), document.baseURI).href);
-        links.set(target.href, { kind: "link", value: { text, url: target.href } });
-      } catch {
-      }
-    }
-    const outline = [...root.querySelectorAll("h1[id],h2[id],h3[id]")].map((element) => {
-      const target = new URL(url);
-      target.hash = element.id;
-      return { text: element.textContent?.trim() ?? "", url: target.href };
-    });
     return {
       kind: "page",
       key: pageKey(input),
@@ -139,8 +124,7 @@ function extractHtml(html, input) {
         extraction: "html",
         ...hasScripts && body.reduce((sum, unit) => sum + (unit.kind === "text" ? [...unit.text].length : 0), 0) < 80 ? { mayNeedRendering: true } : {}
       },
-      units: [...body, ...links.values()],
-      outline
+      units: body
     };
   } finally {
     dom.window.close();

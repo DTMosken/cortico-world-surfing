@@ -46,10 +46,13 @@ export class PageReader {
     let html: string;
     try { html = new TextDecoder(charset).decode(response.body); }
     catch { throw new ReadError('protocol_error', '网页使用了不支持的文字编码。'); }
-    if (type.startsWith('text/plain') || type.startsWith('text/markdown')) return {
+    if (type.startsWith('text/plain') || type.startsWith('text/markdown')) {
+      if (!html.trim()) throw new ReadError('content_unavailable', '未取得网页正文。');
+      return {
       kind: 'page', key: pageKey(input), source: target.href, title: '公开文本', scope: { kind: 'web-page', extraction: 'text' },
       units: [{ kind: 'text', text: html }],
-    };
+      };
+    }
     if (type && !type.includes('text/html') && !type.includes('application/xhtml+xml'))
       throw new ReadError('content_unavailable', '首版仅读取网页和公开文本，未提取此文件格式。');
     let material: Material;

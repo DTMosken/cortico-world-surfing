@@ -7,13 +7,14 @@ const html = `<!doctype html><title>阅读指南</title><nav>菜单与广告</na
 <h2 id="third">第三节</h2><p>其他内容。</p>
 <script>fetch('http://127.0.0.1/')</script><p hidden>隐藏内容</p></main>`;
 
-test('提取正文、代码和绝对链接，排除导航与脚本', () => {
+test('提取正文和代码，链接仅保留原文文字，排除导航与脚本', () => {
   const material = extractHtml(html, 'https://example.org/docs/start');
   const body = material.units.filter(x => x.kind === 'text').map(x => x.text).join('');
   expect(body).toContain('起点说明。');
   expect(body).toContain('line 1\nline 2');
   expect(body).not.toMatch(/菜单与广告|fetch|隐藏内容/);
-  expect(material.units.filter(x => x.kind === 'link')).toContainEqual({ kind: 'link', value: { text: '下一步', url: 'https://example.org/docs/next' } });
+  expect(body).toContain('下一步');
+  expect(material.units.every(x => x.kind === 'text')).toBe(true);
 });
 
 test('锚点只读取选定章节，不把后面的同级章节当已读', () => {
@@ -25,12 +26,13 @@ test('锚点只读取选定章节，不把后面的同级章节当已读', () =>
   expect(() => extractHtml(html, 'https://example.org/docs/start#missing')).toThrow(/锚点/);
 });
 
-test('正文里的 div、零散文字和表格内容都保留，链接尊重 base', () => {
+test('正文里的 div、零散文字、表格和链接文字都保留', () => {
   const material = extractHtml('<base href="https://example.org/base/"><main><h1>正文</h1><div>直接文字<span>行内文字</span></div><p>段落。</p><table><tr><th>项目</th><th>值</th></tr><tr><td>甲</td><td>1</td></tr></table><a href="next">后续</a></main>', 'https://example.org/start');
   const body = material.units.filter(x=>x.kind==='text').map(x=>x.text).join('');
   expect(body).toContain('直接文字'); expect(body).toContain('行内文字');
   expect(body).toContain('项目\t值\n甲\t1');
-  expect(material.units.filter(x=>x.kind==='link')).toContainEqual({kind:'link',value:{text:'后续',url:'https://example.org/base/next'}});
+  expect(body).toContain('后续');
+  expect(material.units.every(x=>x.kind==='text')).toBe(true);
 });
 
 test('空命名锚点定位后面的章节，截在下一同级标题之前', () => {

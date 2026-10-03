@@ -5,21 +5,22 @@ import { ReadError } from './network.ts';
 
 export type RecordValue = Record<string, string | number | boolean>;
 export type Unit = { kind: 'text'; text: string; startSec?: number; endSec?: number }
-  | { kind: 'link' | 'part' | 'result'; value: RecordValue };
+  | { kind: 'part' | 'result'; value: RecordValue };
 export interface Material {
   kind: 'page' | 'bili' | 'search'; key: string; source: string; title: string;
   scope: Record<string, string | number | boolean>;
   units: Unit[];
-  outline?: Array<{ text: string; url: string }>;
-  outlineTruncated?: boolean;
   sourceTruncated?: boolean; truncationReason?: string;
   nextSearchPage?: number;
   sentenceTimes?: Array<{ from: number; to: number }>;
   metadataTruncated?: string[];
 }
-interface Snapshot { material: Material; size: number; expiresAtMs: number; materialEstimatedTokens: number; nextSearchCursor?: string }
+interface Snapshot { material: Material; size: number; expiresAtMs: number; nextSearchCursor?: string }
 interface Position { id: string; unit: number; offset: number }
-export interface PageResult { text: string; hasMore: boolean; sourceTruncated: boolean; estimatedTokens: number }
+export interface PageResult {
+  text: string; hasMore: boolean; sourceTruncated: boolean; estimatedTokens: number;
+  nextCursor?: string; failed?: true;
+}
 
 /** Adapted from Cortico src/protocol/open-responses/tokens.ts, MIT, Phantivia. */
 export function estimateTokens(text: string): number {
@@ -32,18 +33,13 @@ export function estimateTokens(text: string): number {
   return Math.ceil(weighted / 10);
 }
 
-export function serializeReceipt(receipt: Record<string, unknown>): string {
-  receipt.estimatedTokens = 0;
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const text = JSON.stringify(receipt);
-    const size = estimateTokens(text);
-    if (size === receipt.estimatedTokens) return text;
-    receipt.estimatedTokens = size;
-  }
-  return JSON.stringify(receipt);
-}
-
 const clip = (value: string, count: number) => [...value].slice(0, count).join('');
+const line = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim();
+function recordText(unit: Exclude<Unit, { kind: 'text' }>): string {
+  const value = unit.value;
+  return unit.kind === 'part' ? `P${value.page}：${line(value.title)}（cid: ${value.cid}）\n`
+    : `${line(value.title)}\nBV: ${value.bvid}；UP主：${line(value.author)}；时长：${line(value.duration)}\n\n`;
+}
 
 export class SnapshotCache {
   private readonly signingKey = randomBytes(32);
@@ -84,26 +80,12 @@ export class SnapshotCache {
       return [key,limited];
     }));
     if (metadataTruncated.length) material.metadataTruncated = metadataTruncated;
-    if (material.outline) {
-      const outline: NonNullable<Material['outline']> = [];
-      for (const item of material.outline) {
-        const value = { text: clip(item.text, 80), url: item.url };
-        const length = [...JSON.stringify(value)].length;
-        if (length > remaining) {
-          material.outlineTruncated = true; material.sourceTruncated = true; material.truncationReason = 'source_chars';
-          break;
-        }
-        outline.push(value); remaining -= length;
-      }
-      material.outline = outline;
-    }
     const size = Buffer.byteLength(JSON.stringify(material));
     if (size > config.cache.maxBytes) throw new ReadError('source_limit', '单份材料超出文本缓存上限，无法保存续读快照。');
     this.trim(config.cache.maxBytes - size);
     const id = randomBytes(12).toString('hex');
     this.snapshots.set(id, {
       material, size, expiresAtMs: this.now() + config.cache.ttlMs,
-      materialEstimatedTokens: estimateTokens(units.map(unit => unit.kind === 'text' ? unit.text : JSON.stringify(unit.value)).join('')),
     });
     this.bytes += size;
     return this.encode({ id, unit: 0, offset: 0 });
@@ -118,66 +100,52 @@ export class SnapshotCache {
     this.snapshots.delete(start.id);
     this.snapshots.set(start.id, snapshot);
     const { material } = snapshot;
-    const sourceUrlOmitted = material.source.length > 1200;
-    const receipt: Record<string, unknown> = {
-      status: 'ok', source: sourceUrlOmitted ? new URL(material.source).origin : material.source,
-      ...(sourceUrlOmitted ? { sourceUrlOmitted: true } : {}), title: material.title, scope: material.scope,
-      materialEstimatedTokens: snapshot.materialEstimatedTokens,
-      ...(material.metadataTruncated ? {metadataTruncated:material.metadataTruncated} : {}),
-      content: '', links: [], parts: [], results: [],
-      sourceTruncated: material.sourceTruncated ?? false,
-      ...(material.truncationReason ? { truncationReason: material.truncationReason } : {}),
-    };
+    const scope = material.scope;
+    const header = [material.kind === 'bili' ? `视频：${line(material.title)}`
+      : material.kind === 'search' ? `B站搜索：${line(scope.query)}（第${scope.page}页）` : `网页：${line(material.title)}`];
+    if (material.kind === 'bili') header.push(`P${scope.page}：${line(scope.part)}；UP主：${line(scope.author)}；${scope.isAi ? 'AI' : '人工'}字幕（${line(scope.language)}）`);
+    if (scope.kind === 'web-section') header.push(`章节：${line(scope.anchor)}`);
+    const notices: string[] = [];
+    if (material.metadataTruncated?.some(name => ['title', 'scope.part', 'scope.author', 'scope.query'].includes(name)))
+      notices.push('标题信息已截短。');
+    if (material.sourceTruncated) notices.push(material.truncationReason === 'rendering_unavailable'
+      ? `仅取得静态网页文本，渲染未完成：${line(scope.renderingReason)}。`
+      : '材料触及保留上限，剩余内容未保留。');
+    let content = material.kind === 'search' && !material.units.length && !material.sourceTruncated ? '未找到匹配的视频。' : '';
+    let failure: string | undefined;
     const current = { ...start };
+    const hasMore = () => current.unit < material.units.length || (!!material.nextSearchPage && !material.sourceTruncated);
     const finish = () => {
-      const hasMore = current.unit < material.units.length || (!!material.nextSearchPage && !material.sourceTruncated);
-      return serializeReceipt({ ...receipt, hasMore,
-        nextCursor: hasMore ? this.encode(current) : null,
-        ...(!hasMore && material.nextSearchPage ? { nextSearchPage: material.nextSearchPage } : {}),
-        range: { fromUnit: start.unit, fromOffset: start.offset, toUnit: current.unit, toOffset: current.offset },
-      });
+      const footer = [...notices, ...(hasMore() ? [`续读 cursor: ${this.encode(current)}`] : [])];
+      const title = failure ? '[tool failed] ' + failure : header.join('\n');
+      return title + '\n\n' + content + (footer.length ? '\n\n' + footer.join('\n') : '');
     };
     const cap = config.reading.maxResponseEstimatedTokens;
     if (estimateTokens(finish()) > cap) throw new ReadError('source_limit', '来源信息超过返回上限，无法生成完整回执。');
-    if (start.unit === 0 && start.offset === 0 && (material.outline?.length || material.outlineTruncated)) {
-      const outline: unknown[] = [];
-      receipt.outline = outline;
-      for (const item of material.outline ?? []) {
-        outline.push(item);
-        // Reserve most of the page for the requested text.
-        if (estimateTokens(finish()) > Math.min(cap / 3, 1000)) { outline.pop(); break; }
-      }
-      receipt.outlinePartial = !!material.outlineTruncated || outline.length < (material.outline?.length ?? 0);
-    }
     while (current.unit < material.units.length) {
       const unit = material.units[current.unit];
       if (unit.kind !== 'text') {
-        const field = unit.kind === 'link' ? 'links' : unit.kind === 'part' ? 'parts' : 'results';
-        const records = receipt[field] as RecordValue[];
-        records.push(unit.value);
+        const previous = content;
+        content += recordText(unit);
         current.unit++;
         if (estimateTokens(finish()) > cap) {
-          records.pop(); current.unit--;
+          content = previous; current.unit--;
           if (current.unit === start.unit && current.offset === start.offset) {
-            receipt.status = 'response_limit';
-            receipt.reason = '单条记录超出返回上限；提高配置后用此游标继续。';
+            failure = '单条记录超出返回上限；提高配置后用此游标继续。';
           }
           break;
         }
         continue;
       }
       const chars = [...unit.text];
-      const previous = receipt.content as string;
+      if (!chars.length) { current.unit++; current.offset = 0; continue; }
+      const previous = content;
       const previousOffset = current.offset;
       const previousUnit = current.unit;
-      const previousTime = receipt.timeRange;
-      if (unit.startSec !== undefined) receipt.timeRange = {
-        fromSec: (previousTime as { fromSec: number } | undefined)?.fromSec ?? unit.startSec, toSec: unit.endSec,
-      };
       let low = 0, high = Math.min(chars.length - previousOffset, cap * 4);
       while (low < high) {
         const middle = Math.ceil((low + high) / 2);
-        receipt.content = previous + chars.slice(previousOffset, previousOffset + middle).join('');
+        content = previous + chars.slice(previousOffset, previousOffset + middle).join('');
         current.offset = previousOffset + middle;
         if (current.offset === chars.length) { current.unit++; current.offset = 0; }
         if (estimateTokens(finish()) <= cap) low = middle; else high = middle - 1;
@@ -193,12 +161,11 @@ export class SnapshotCache {
           if (length >= taken * 0.8) taken = length;
         }
       }
-      receipt.content = previous + chars.slice(previousOffset, previousOffset + taken).join('');
+      content = previous + chars.slice(previousOffset, previousOffset + taken).join('');
       current.offset = previousOffset + taken;
       if (!taken) {
-        if (previousTime === undefined) delete receipt.timeRange; else receipt.timeRange = previousTime;
         if (current.unit === start.unit && current.offset === start.offset) {
-          receipt.status = 'response_limit'; receipt.reason = '返回上限不足以容纳正文；提高配置后用此游标继续。';
+          failure = '返回上限不足以容纳正文；提高配置后用此游标继续。';
         }
       }
       if (current.offset === chars.length) { current.unit++; current.offset = 0; }
@@ -206,8 +173,8 @@ export class SnapshotCache {
     }
     const text = finish();
     if (estimateTokens(text) > cap) throw new ReadError('source_limit', '返回信息超过配置上限。');
-    return { text, hasMore: current.unit < material.units.length || (!!material.nextSearchPage && !material.sourceTruncated),
-      sourceTruncated: material.sourceTruncated ?? false, estimatedTokens: estimateTokens(text) };
+    return { text, hasMore: hasMore(), ...(hasMore() ? { nextCursor: this.encode(current) } : {}),
+      sourceTruncated: material.sourceTruncated ?? false, estimatedTokens: estimateTokens(text), ...(failure ? { failed: true } : {}) };
   }
 
   nextSearch(cursor: string, expectedKey: string, config: SurfingConfigSection): { page: number; cursor?: string } | undefined {

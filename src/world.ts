@@ -3,24 +3,25 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ToolDef, ToolSpec, ToolOutcome, ToolCallContext, World, WorldConsoleDecl, WorldHost } from 'cortico/core/types.ts';
 import type { WorldContext } from 'cortico/world.ts';
-import { SURFING_DEFAULTS, SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP, validateConfig, type SurfingConfigSection } from './config.ts';
+import { SURFING_DEFAULTS, SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP, applyBiliDefaults, validateConfig, type SurfingConfigSection } from './config.ts';
 import { BiliClient, biliKey, type BiliInput } from './bili.ts';
+import { BiliLogin } from './bili-login.ts';
 import { ReadError, asReadError, PublicClient, waitWithSignal, type ReadOperation } from './network.ts';
 import { PageReader, pageKey } from './page-reader.ts';
-import { SnapshotCache, serializeReceipt, estimateTokens, type Material } from './snapshots.ts';
+import { SnapshotCache, estimateTokens, type Material } from './snapshots.ts';
 
 const ENV_PROMPT_FILE = fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url));
 
-const cursor = { type: 'string', maxLength: 256, description: '沿用上次返回的 nextCursor，并保持原目标参数。' };
+const cursor = { type: 'string', maxLength: 256, description: '沿用回执末尾的续读 cursor，并保持原目标参数。' };
 export const SURFING_TOOL_DECLS: ToolSpec[] = [
   {
-    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页正文、目录和链接，返回预算内原文片段；可用 cursor 继续。URL 的章节锚点可定位长文。仅接受公开域名。',
+    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页正文，返回预算内原文片段；可用 cursor 继续。URL 的章节锚点可定位长文。仅接受公开域名。',
     parameters: { type: 'object', additionalProperties: false, required: ['url'], properties: {
       url: { type: 'string', maxLength: 8192, description: '用户提供或搜索结果中需要打开的 HTTP(S) URL。' }, cursor,
     } },
   },
   {
-    name: 'surfing_read_bili', tags: ['read'], description: '匿名读取 B站视频人工或 AI 字幕。提供 BV 即可；可指定 cid 或 URL 中的 p 选择分P。回执为字幕原文片段，缺字幕不代表无音频。',
+    name: 'surfing_read_bili', tags: ['read'], description: '读取 B站视频人工或 AI 字幕；可选登录由面板管理。提供 BV 即可；可指定 cid 或 URL 中的 p 选择分P。回执为字幕原文片段，未取得字幕不代表无音频。',
     parameters: { type: 'object', additionalProperties: false, anyOf: [{ required: ['bvid'] }, { required: ['aid'] }, { required: ['url'] }], properties: {
       bvid: { type: 'string', pattern: '^BV[0-9A-Za-z]{10}$', description: '视频 BV号。' },
       aid: { type: 'integer', minimum: 1, description: '稿件 aid；不知道时只给 BV 或 URL。' },
@@ -29,7 +30,7 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
     } },
   },
   {
-    name: 'surfing_search_bili', tags: ['read'], description: '独立搜索 B站视频，返回标题、BV、链接、UP主与时长。明确要求找视频时调用；查梗或概念可使用“关键词 梗知识”。可用 cursor 继续。',
+    name: 'surfing_search_bili', tags: ['read'], description: '独立搜索 B站视频，返回标题、BV、UP主与时长。明确要求找视频时调用；查梗或概念可使用“关键词 梗知识”。可用 cursor 继续。',
     parameters: { type: 'object', additionalProperties: false, required: ['query'], properties: {
       query: { type: 'string', minLength: 1, maxLength: 240 }, cursor,
     } },
@@ -39,14 +40,19 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
 export class SurfingWorld implements World {
   readonly id = 'surfing';
   private readonly cache = new SnapshotCache();
-  private readonly bili = new BiliClient();
+  private readonly login: BiliLogin;
+  private readonly bili: BiliClient;
   private readonly pages = new PageReader();
   private readonly pendingSearches = new Map<string,{promise:Promise<string>;signal:AbortSignal}>();
   private lifecycle = new AbortController();
   private stopped = false;
   private last?: { status: string; failed: boolean; estimatedTokens: number; sourceTruncated: boolean };
 
-  constructor(private readonly ctx: WorldContext<SurfingConfigSection>, private readonly client = new PublicClient()) {}
+  constructor(private readonly ctx: WorldContext<SurfingConfigSection>, private readonly client = new PublicClient()) {
+    applyBiliDefaults(ctx.cfg);
+    this.login = new BiliLogin(ctx);
+    this.bili = new BiliClient(this.login);
+  }
 
   envPromptVars(): Record<string, string> {
     return { 'surfing.maxResponseEstimatedTokens': String(this.ctx.cfg.reading.maxResponseEstimatedTokens),
@@ -77,7 +83,7 @@ export class SurfingWorld implements World {
         const input: BiliInput = { bvid: args.bvid as string | undefined, aid: args.aid as number | undefined,
           cid: args.cid as number | undefined, url: args.url as string | undefined };
         key = biliKey(input);
-        if (!cursor) material = await this.bili.read(input, operation, config.bili.subtitleGroupSec);
+        if (!cursor) material = await this.bili.read(input, operation, config.bili.subtitleGroupSec, config.bili);
       } else {
         if (typeof args.query !== 'string' || !args.query.trim() || [...args.query.trim()].length > 240)
           throw new ReadError('invalid_input', '搜索词需为1–240字符。');
@@ -89,14 +95,12 @@ export class SurfingWorld implements World {
       operation.signal.throwIfAborted();
       if (material) cursor = this.cache.put(material, config);
       const page = this.cache.read(cursor!, key, config);
-      const status = JSON.parse(page.text).status as string;
-      const failed = status !== 'ok';
-      this.last = { status, failed, estimatedTokens: page.estimatedTokens, sourceTruncated: page.sourceTruncated };
-      return { text: page.text, ...(failed ? { failed: true as const } : {}) };
+      this.last = { status: page.failed ? 'response_limit' : 'ok', failed: !!page.failed,
+        estimatedTokens: page.estimatedTokens, sourceTruncated: page.sourceTruncated };
+      return { text: page.text, ...(page.failed ? { failed: true as const } : {}) };
     } catch (error) {
       const failure = asReadError(error);
-      const text = serializeReceipt({ status: failure.kind, reason: failure.message, tool: name,
-        hasMore: false, nextCursor: null, sourceTruncated: false });
+      const text = '[tool failed] ' + failure.message;
       this.last = { status: failure.kind, failed: true, estimatedTokens: estimateTokens(text), sourceTruncated: false };
       return { text, failed: true };
     } finally { operation?.close(); }
@@ -142,6 +146,22 @@ export class SurfingWorld implements World {
         { label: '源材料', value: this.last ? (this.last.sourceTruncated ? '触及保留上限' : '未触及保留上限') : '尚未读取' },
         { label: '文本缓存', value: Math.ceil(this.cache.sizeBytes / 1024) + ' KiB' },
       ],
+      panels: [{ id: 'login', title: 'B站登录' }],
+      invoke: async (panel, method) => {
+        if (panel !== 'login' || !['state', 'start', 'poll', 'logout'].includes(method)) throw new Error('未知的登录操作。');
+        if (method === 'logout') return this.login.logout();
+        if (this.stopped) {
+          if (method === 'state') return this.login.state();
+          throw new Error('请先启用网上冲浪，再扫码登录。');
+        }
+        const operation = this.client.operation(this.ctx.cfg.network, this.lifecycle.signal);
+        try {
+          if (method === 'start') return await this.login.start(operation);
+          if (method === 'poll') return await this.login.poll(operation);
+          if (this.login.state().kind === 'unverified') await this.login.cookie(operation);
+          return this.login.state();
+        } finally { operation.close(); }
+      },
       config: [SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP],
       promptDocs: [{ key: 'worlds.surfing.envPrompt', title: '网上冲浪环境提示词', description: '网页、视频与学习工具的使用指导。',
         path: existsSync(override) ? override : ENV_PROMPT_FILE, deploymentPath: override, role: 'envPrompt',
@@ -154,7 +174,7 @@ export class SurfingWorld implements World {
 
   async start(_host: WorldHost): Promise<void> { this.lifecycle = new AbortController(); this.stopped = false; }
   async stop(): Promise<void> {
-    this.stopped = true; this.lifecycle.abort(); this.cache.clear(); this.pendingSearches.clear();
+    this.stopped = true; this.lifecycle.abort(); this.login.cancel(); this.cache.clear(); this.pendingSearches.clear();
     await this.pages.stop();
   }
 }

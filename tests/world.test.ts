@@ -5,36 +5,48 @@ import { SurfingWorld } from '../src/world.ts';
 import { SURFING_DEFAULTS, type SurfingConfigSection } from '../src/config.ts';
 import { estimateTokens } from '../src/snapshots.ts';
 import { PublicClient, waitWithSignal, type NetworkLimits } from '../src/network.ts';
-import { PlatformFixture } from './platform-fixture.ts';
+import { PlatformFixture, receipt } from './platform-fixture.ts';
 
 class FixtureClient extends PublicClient {
   constructor(readonly fixture: PlatformFixture) { super(); }
   override operation(limits: NetworkLimits, parent?: AbortSignal) {
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal,AbortSignal.timeout(limits.requestTimeoutMs),...(parent?[parent]:[])]);
-    return {signal,downloadedBytes:0,close:()=>controller.abort(),get:(url:string)=>waitWithSignal(this.fixture.get(url),signal)};
+    return {signal,downloadedBytes:0,close:()=>controller.abort(),get:(url:string,options?:import('../src/network.ts').GetOptions)=>waitWithSignal(this.fixture.get(url,options),signal)};
   }
 }
 function result(outcome: Awaited<ReturnType<ReturnType<SurfingWorld['tools']>[number]['handler']>>) {
-  return JSON.parse(typeof outcome==='string'?outcome:outcome.text);
+  return { ...receipt(typeof outcome==='string'?outcome:outcome.text), failed: typeof outcome !== 'string' && !!outcome.failed };
 }
 
 function context(): WorldContext<SurfingConfigSection> {
   return { id: 'surfing', cfg: structuredClone(SURFING_DEFAULTS), timezone: 'UTC', botName: 'test',
-    botDir: '.', packageDir: '.', dataDir: '.', repoRoot: '.', secret() { throw new Error('credentials must not be read'); },
+    botDir: '.', packageDir: '.', dataDir: '.', repoRoot: '.', secret() { return ''; },
     storeSecret() { throw new Error('credentials must not be stored'); }, persist() {}, async restart() {} };
 }
 
-test('独立 World 在没有 learn 或凭证时提供工具与可调面板', () => {
+test('独立 World 在没有 learn 或凭证时提供工具、登录和可调面板', () => {
   const world = new SurfingWorld(context());
   expect(world.tools().map(x=>x.name)).toEqual(['surfing_read_page','surfing_read_bili','surfing_search_bili']);
   const groups = world.console().config!;
   const fields = groups.flatMap(group => Object.keys(group.schema.properties));
   expect(fields).toContain('worlds.surfing.reading.maxResponseEstimatedTokens');
+  expect(fields).toContain('worlds.surfing.bili.maxSubtitleRetries');
+  expect(fields).toContain('worlds.surfing.bili.subtitleRetryDelayMs');
   expect(fields.some(field => /login|cookie|apiKey|summaryModel/i.test(field))).toBe(false);
+  expect(world.console().panels?.some(panel=>panel.id==='login')).toBe(true);
   const first = SURFING.defaults(), second = SURFING.defaults();
   first.reading.maxResponseEstimatedTokens = 1024;
   expect(second.reading.maxResponseEstimatedTokens).toBe(SURFING_DEFAULTS.reading.maxResponseEstimatedTokens);
+});
+
+test('已有配置缺少新增重试配置时补默认值，保留原阅读配置', () => {
+  const ctx = context(); const bili = ctx.cfg.bili as Partial<SurfingConfigSection['bili']>;
+  delete bili.maxSubtitleRetries; delete bili.subtitleRetryDelayMs;
+  ctx.cfg.reading.maxResponseEstimatedTokens = 2048;
+  new SurfingWorld(ctx);
+  expect(ctx.cfg.bili).toEqual(SURFING_DEFAULTS.bili);
+  expect(ctx.cfg.reading.maxResponseEstimatedTokens).toBe(2048);
 });
 
 test('错误回执也受完整返回上限约束', async () => {
@@ -43,7 +55,9 @@ test('错误回执也受完整返回上限约束', async () => {
   const tool = world.tools()[0];
   const outcome = await tool.handler({ url: 'http://localhost/' }, { role: 'test', log: {} as never });
   const result = typeof outcome === 'string' ? { text: outcome } : outcome;
-  expect(JSON.parse(result.text).status).toBe('address_denied');
+  expect(result.failed).toBe(true);
+  expect(result.text).toMatch(/^\[tool failed\] .*公开域名/);
+  expect(result.text).not.toMatch(/hasMore|sourceTruncated|estimatedTokens|null|\{.*status/);
   expect(estimateTokens(result.text)).toBeLessThanOrEqual(ctx.cfg.reading.maxResponseEstimatedTokens);
 });
 
@@ -53,17 +67,20 @@ test('World 热调返回量后沿原位置续读，续读不访问平台', async
   const world = new SurfingWorld(ctx,new FixtureClient(fixture));
   const tool = world.tools()[1]; const call = {role:'test',log:{} as never};
   let receipt = result(await tool.handler({bvid:'BV1aa411a7aa'},call));
-  let content = receipt.content; expect(receipt.hasMore).toBe(true);
-  expect(receipt.estimatedTokens).toBeLessThanOrEqual(ctx.cfg.reading.maxResponseEstimatedTokens);
+  let content = receipt.content; expect(receipt.nextCursor).toBeTruthy();
+  expect(estimateTokens(receipt.text)).toBeLessThanOrEqual(ctx.cfg.reading.maxResponseEstimatedTokens);
   fixture.offline = true;
   ctx.cfg.reading.maxResponseEstimatedTokens = 2048; ctx.cfg.bili.subtitleGroupSec = 1;
   while(receipt.nextCursor) {
     receipt = result(await tool.handler({bvid:'BV1aa411a7aa',cursor:receipt.nextCursor},call));
-    expect(receipt.status).toBe('ok'); expect(receipt.scope.subtitleGroupSec).toBe(SURFING_DEFAULTS.bili.subtitleGroupSec);
-    expect(receipt.estimatedTokens).toBeLessThanOrEqual(ctx.cfg.reading.maxResponseEstimatedTokens);
+    expect(receipt.failed).toBe(false);
+    expect(estimateTokens(receipt.text)).toBeLessThanOrEqual(ctx.cfg.reading.maxResponseEstimatedTokens);
     content += receipt.content;
   }
-  expect(content).toBe('[00:00–00:01] 开头。\n\n[00:31–00:32] '+fixture.subtitleTail+'\n\n');
+  const original = '[00:00–00:01] 开头。\n\n[00:31–00:32] '+fixture.subtitleTail+'\n\n';
+  expect(content.slice(0, original.length)).toBe(original);
+  expect(content).toContain('cid: 201');
+  expect(receipt.text).not.toContain('https://');
   await world.stop();
 });
 
@@ -72,8 +89,9 @@ test('搜索仅在跨远端页时请求平台，重放边界游标返回相同�
   const tool = world.tools()[2]; const call = {role:'test',log:{} as never};
   const first = result(await tool.handler({query:'竞赛'},call));
   const second = result(await tool.handler({query:'竞赛',cursor:first.nextCursor},call));
-  expect(first.results[0].title).toContain('第1页'); expect(second.results[0].title).toContain('第2页');
-  expect(second.hasMore).toBe(false);
+  expect(first.content).toContain('第1页'); expect(second.content).toContain('第2页');
+  expect(second.nextCursor).toBeUndefined();
+  expect(second.text).not.toContain('https://');
   fixture.offline = true;
   const replay = result(await tool.handler({query:'竞赛',cursor:first.nextCursor},call));
   expect(replay).toEqual(second); expect(fixture.searchPages).toEqual([1,2]);
@@ -96,7 +114,7 @@ test('同一搜索边界并发续读只获取一份下一页快照', async () =>
   const tool = world.tools()[2]; const call = {role:'test',log:{} as never};
   const first = result(await tool.handler({query:'竞赛'},call)); const args = {query:'竞赛',cursor:first.nextCursor};
   const [left,right] = (await Promise.all([tool.handler(args,call),tool.handler(args,call)])).map(result);
-  expect(left).toEqual(right); expect(left.results[0].title).toContain('第1次快照');
+  expect(left).toEqual(right); expect(left.content).toContain('第1次快照');
   expect(fixture.searchPages).toEqual([1,2]);
   expect(result(await tool.handler(args,call))).toEqual(left);
   await world.stop();
@@ -116,8 +134,8 @@ test('取消首个搜索等待者后，其他调用可在自己的时限内继�
   const first = tool.handler(args,{...call,signal:controller.signal}); const second = tool.handler(args,call);
   setTimeout(()=>controller.abort(),5);
   const [cancelled,complete] = (await Promise.all([first,second])).map(result);
-  expect(cancelled.status).toBe('timeout'); expect(complete.status).toBe('ok');
-  expect(complete.results[0].title).toContain('第2页');
+  expect(cancelled.failed).toBe(true); expect(complete.failed).toBe(false);
+  expect(complete.content).toContain('第2页');
   expect(result(await tool.handler(args,call))).toEqual(complete);
   await world.stop();
 });

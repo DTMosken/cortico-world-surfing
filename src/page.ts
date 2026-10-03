@@ -71,22 +71,9 @@ export function extractHtml(html: string, input: string): Material {
       } else pending.push(...[...node.childNodes].reverse());
     }
     if (!hasBody) throw new ReadError('content_unavailable', '未取得网页正文，可能需要 JavaScript 或页面限制了访问。');
-    const links = new Map<string, Unit>();
-    for (const element of root.querySelectorAll('a[href]')) {
-      const text = element.textContent?.replace(/\s+/g, ' ').trim() || element.getAttribute('aria-label');
-      if (!text) continue;
-      try {
-        const target = validatePublicUrl(new URL(element.getAttribute('href')!, document.baseURI).href);
-        links.set(target.href, { kind: 'link', value: { text, url: target.href } });
-      } catch { /* Non-public or non-HTTP links remain text and are not offered for opening. */ }
-    }
-    const outline = [...root.querySelectorAll('h1[id],h2[id],h3[id]')].map(element => {
-      const target = new URL(url); target.hash = element.id;
-      return { text: element.textContent?.trim() ?? '', url: target.href };
-    });
     return { kind: 'page', key: pageKey(input), source: url.href, title: document.title || '网页',
       scope: { kind: section ? 'web-section' : 'web-page', ...(section ? { anchor: url.hash.slice(1) } : {}), extraction: 'html',
         ...(hasScripts && body.reduce((sum,unit)=>sum+(unit.kind==='text'?[...unit.text].length:0),0)<80 ? {mayNeedRendering:true} : {}) },
-      units: [...body, ...links.values()], outline };
+      units: body };
   } finally { dom.window.close(); }
 }

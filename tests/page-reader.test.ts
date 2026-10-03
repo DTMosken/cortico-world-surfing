@@ -16,6 +16,14 @@ test('Worker 解析静态正文并定位章节', async () => {
   } finally {operation.close();await reader.stop();}
 });
 
+test('空公开文本报告未取得正文，不能误报返回预算不足', async () => {
+  const operation = fixtureOperation('');
+  operation.get = async url => ({ url, status: 200, headers: { 'content-type': 'text/plain' }, body: Buffer.from(' \n') });
+  const reader = new PageReader();
+  try { await expect(reader.read('https://example.org/article', operation, 8192)).rejects.toMatchObject({kind:'content_unavailable'}); }
+  finally { operation.close(); await reader.stop(); }
+});
+
 test.each(['','<p>Loading...</p>'])('空壳或短占位网页经浏览器后备取得正文 %s', async placeholder => {
   const operation = fixtureOperation('<main>'+placeholder+'<p id="text"></p></main><script>fetch("/data").then(r=>r.json()).then(d=>document.querySelector("#text").textContent=d.text)</script>');
   const reader = new PageReader();

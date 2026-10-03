@@ -1,7 +1,15 @@
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { expect, test } from 'vitest';
-import { PublicClient, validatePublicUrl, isPublicAddress } from '../src/network.ts';
+import { PublicClient, validatePublicUrl, isPublicAddress, requestHeaders } from '../src/network.ts';
+
+test('登录凭证仅发送到标准 HTTPS 的 B站 API；普通 Cookie 头不继承', () => {
+  const options = {biliCookie:'SESSDATA=fixture-session',headers:{Cookie:'private=fixture'}};
+  expect(requestHeaders(new URL('https://api.bilibili.com/x/player/wbi/v2'),options).cookie).toBe(options.biliCookie);
+  for (const target of ['http://api.bilibili.com/x','https://api.bilibili.com:8443/x','https://passport.bilibili.com/x',
+    'https://www.bilibili.com/','https://b23.tv/x','https://aisubtitle.hdslb.com/x','https://example.org/'])
+    expect(requestHeaders(new URL(target),options)).not.toHaveProperty('cookie');
+});
 
 test('拒绝 IP、账号 URL 和本地域名的规范化变体', () => {
   for (const url of ['http://localhost/', 'http://x.localhost/', 'http://127.1/', 'http://2130706433/',

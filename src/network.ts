@@ -23,8 +23,11 @@ export function asReadError(error: unknown): ReadError {
 export interface NetworkLimits { requestTimeoutMs: number; maxDownloadBytes: number }
 export interface Address { address: string; family: number }
 export type Resolver = (hostname: string) => Promise<Address[]>;
-export interface PublicResponse { url: string; status: number; headers: Record<string, string>; body: Buffer }
-export interface GetOptions { headers?: Record<string, string>; allowHost?: (hostname: string) => boolean; followRedirects?: boolean }
+export interface PublicResponse { url: string; status: number; headers: Record<string, string>; body: Buffer; biliCookies?: string[] }
+export interface GetOptions {
+  headers?: Record<string, string>; allowHost?: (hostname: string) => boolean; followRedirects?: boolean;
+  biliCookie?: string; receiveBiliCookies?: boolean;
+}
 export interface ReadOperation {
   readonly signal: AbortSignal;
   readonly downloadedBytes: number;
@@ -68,6 +71,19 @@ function responseHeaders(headers: IncomingHttpHeaders): Record<string, string> {
     .map(([key, value]) => [key, Array.isArray(value) ? value.join(', ') : value]));
 }
 
+export function requestHeaders(url: URL, options: GetOptions): Record<string, string> {
+  const headers: Record<string, string> = {
+    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+    'accept-encoding': 'gzip, deflate, br', accept: '*/*', 'accept-language': '*',
+  };
+  for (const [key, value] of Object.entries(options.headers ?? {})) {
+    if (['accept', 'accept-language', 'referer', 'user-agent'].includes(key.toLowerCase())) headers[key.toLowerCase()] = value;
+  }
+  if (url.protocol === 'https:' && url.hostname === 'api.bilibili.com' && !url.port && options.biliCookie)
+    headers.cookie = options.biliCookie;
+  return headers;
+}
+
 export class PublicClient {
   constructor(private readonly resolve: Resolver = hostname => lookup(hostname, { all: true, verbatim: true })) {}
 
@@ -108,14 +124,7 @@ class Operation implements ReadOperation {
   }
 
   private request(url: URL, selected: Address, options: GetOptions): Promise<PublicResponse> {
-    const headers: Record<string, string> = {
-      'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
-      'accept-encoding': 'gzip, deflate, br',
-      accept: '*/*', 'accept-language': '*',
-    };
-    for (const [key, value] of Object.entries(options.headers ?? {})) {
-      if (['accept', 'accept-language', 'referer', 'user-agent'].includes(key.toLowerCase())) headers[key.toLowerCase()] = value;
-    }
+    const headers = requestHeaders(url, options);
     return new Promise((resolve, reject) => {
       const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
         method: 'GET', headers, agent: false, signal: this.signal, family: selected.family,
@@ -123,6 +132,9 @@ class Operation implements ReadOperation {
       }, response => {
         const status = response.statusCode ?? 0;
         const normalized = responseHeaders(response.headers);
+        const biliCookies = options.receiveBiliCookies && url.protocol === 'https:' && !url.port
+          && url.hostname === 'passport.bilibili.com' && url.pathname === '/x/passport-login/web/qrcode/poll'
+          ? response.headers['set-cookie'] : undefined;
         if ([301, 302, 303, 307, 308].includes(status)) {
           response.destroy();
           resolve({ url: url.href, status, headers: normalized, body: Buffer.alloc(0) });
@@ -151,7 +163,7 @@ class Operation implements ReadOperation {
             delete normalized['content-encoding'];
             delete normalized['content-length'];
             delete normalized['transfer-encoding'];
-            resolve({ url: url.href, status, headers: normalized, body: Buffer.concat(chunks) });
+            resolve({ url: url.href, status, headers: normalized, body: Buffer.concat(chunks), ...(biliCookies ? { biliCookies } : {}) });
           } catch (error) { request.destroy(); response.destroy(); decoder?.destroy(); reject(error); }
         })();
       });

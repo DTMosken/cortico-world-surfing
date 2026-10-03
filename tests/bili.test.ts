@@ -1,5 +1,8 @@
 import { expect, test } from 'vitest';
 import { BiliClient, biliKey, parseSubtitleTracks, resolveSubtitleUrl } from '../src/bili.ts';
+import { BiliLogin } from '../src/bili-login.ts';
+import { SURFING_DEFAULTS } from '../src/config.ts';
+import type { GetOptions, PublicResponse } from '../src/network.ts';
 import { PlatformFixture } from './platform-fixture.ts';
 
 test('未登录 nav 仍能取得原生字幕并保留后文、分P与来源', async () => {
@@ -10,17 +13,93 @@ test('未登录 nav 仍能取得原生字幕并保留后文、分P与来源', as
   expect(result.sentenceTimes).toEqual([{from:0,to:1},{from:31,to:32}]);
 });
 
-test('原生空轨道只重试一次，仍为空则报告未提供字幕', async () => {
+test('原生空轨道按配置最多尝试三次，最终仅报告本次未取得字幕', async () => {
   const fixture = new PlatformFixture(); fixture.emptyResponses = Infinity;
-  await expect(new BiliClient().read({bvid:'BV1aa411a7aa'},fixture,30)).rejects.toMatchObject({kind:'no_subtitle'});
-  expect(fixture.nativeRequests).toBe(2);
+  const retries = { ...SURFING_DEFAULTS.bili, subtitleRetryDelayMs: 100 };
+  await expect(new BiliClient().read({bvid:'BV1aa411a7aa'},fixture,30,retries))
+    .rejects.toMatchObject({kind:'no_subtitle', message: '本次未取得 P1 字幕（已尝试3次）。'});
+  expect(fixture.nativeRequests).toBe(retries.maxSubtitleRetries + 1);
+  expect(fixture.nativeAtMs[1]-fixture.nativeAtMs[0]).toBeGreaterThanOrEqual(retries.subtitleRetryDelayMs);
+  expect(fixture.nativeAtMs[2]-fixture.nativeAtMs[1]).toBeGreaterThanOrEqual(retries.subtitleRetryDelayMs * 2);
 });
 
 test('原生暂时空轨道可在一次重试后取得正文', async () => {
   const fixture = new PlatformFixture(); fixture.emptyResponses = 1;
-  const result = await new BiliClient().read({bvid:'BV1aa411a7aa'},fixture,30);
+  const result = await new BiliClient().read({bvid:'BV1aa411a7aa'},fixture,30,{ ...SURFING_DEFAULTS.bili, subtitleRetryDelayMs: 100 });
   expect(result.units.filter(x=>x.kind==='text').map(x=>x.text).join('')).toContain('开头。');
   expect(fixture.nativeRequests).toBe(2);
+});
+
+test('关闭空字幕重试时只请求一次', async () => {
+  const fixture = new PlatformFixture(); fixture.emptyResponses = Infinity;
+  await expect(new BiliClient().read({bvid:'BV1aa411a7aa'},fixture,30,{ ...SURFING_DEFAULTS.bili, maxSubtitleRetries: 0 }))
+    .rejects.toMatchObject({kind:'no_subtitle'});
+  expect(fixture.nativeRequests).toBe(1);
+});
+
+test('轨道存在但正文暂为空时也重试并保留后来取得的原句', async () => {
+  const fixture = new PlatformFixture(); fixture.emptySubtitleBodies = 2;
+  const result = await new BiliClient().read({bvid:'BV1aa411a7aa'},fixture,30,{ ...SURFING_DEFAULTS.bili, subtitleRetryDelayMs: 100 });
+  expect(result.units.some(unit=>unit.kind==='text'&&unit.text.includes('末尾结论。'))).toBe(true);
+  expect(fixture.nativeRequests).toBe(3); expect(fixture.subtitleRequests).toBe(3);
+});
+
+test('明确拒绝和协议错误都不进行空字幕重试', async () => {
+  for (const status of [403,429]) {
+    const fixture = new PlatformFixture(); fixture.nativeStatus = status;
+    await expect(new BiliClient().read({bvid:'BV1aa411a7aa'},fixture,30)).rejects.toMatchObject({kind:'access_denied'});
+    expect(fixture.nativeRequests).toBe(1);
+  }
+  const fixture = new PlatformFixture(); fixture.nativeJson = {code:0,data:{}};
+  await expect(new BiliClient().read({bvid:'BV1aa411a7aa'},fixture,30)).rejects.toMatchObject({kind:'protocol_error'});
+  expect(fixture.nativeRequests).toBe(1);
+});
+
+test('重试等待响应同一次读取的超时，不发起后续请求', async () => {
+  const fixture = new PlatformFixture(); fixture.emptyResponses = Infinity;
+  Object.defineProperty(fixture,'signal',{value:AbortSignal.timeout(40)});
+  await expect(new BiliClient().read({bvid:'BV1aa411a7aa'},fixture,30)).rejects.toMatchObject({name:'AbortError'});
+  expect(fixture.nativeRequests).toBe(1);
+});
+
+test('登录后取得播放器字幕，凭证不传给字幕 CDN', async () => {
+  const fixture = new PlatformFixture(); fixture.acceptedSession = 'fixture-session'; fixture.emptyResponses = Infinity;
+  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:fixture.acceptedSession}),storeSecret:()=>{throw new Error('unexpected write');}});
+  const result = await new BiliClient(login).read({bvid:'BV1aa411a7aa'},fixture,30);
+  expect(result.units.some(unit=>unit.kind==='text'&&unit.text.includes('开头。'))).toBe(true);
+  expect(fixture.nativeRequests).toBe(0);
+  expect(login.state()).toMatchObject({kind:'logged_in',username:'测试用户'});
+});
+
+test('登录播放器轨道为空时，仍可通过原生接口取得字幕', async () => {
+  const fixture = new PlatformFixture(); fixture.acceptedSession = 'fixture-session'; fixture.playerEmpty = true;
+  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:fixture.acceptedSession}),storeSecret:()=>{throw new Error('unexpected write');}});
+  const result = await new BiliClient(login).read({bvid:'BV1aa411a7aa'},fixture,30);
+  expect(result.units.some(unit=>unit.kind==='text'&&unit.text.includes('开头。'))).toBe(true);
+  expect(fixture.nativeRequests).toBe(1);
+});
+
+test('登录凭证失效时以匿名模式取得原生字幕', async () => {
+  const fixture = new PlatformFixture(); fixture.acceptedSession = 'current-session';
+  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:'expired-session'}),storeSecret:()=>{throw new Error('unexpected write');}});
+  const result = await new BiliClient(login).read({bvid:'BV1aa411a7aa'},fixture,30);
+  expect(result.units.some(unit=>unit.kind==='text'&&unit.text.includes('开头。'))).toBe(true);
+  expect(login.state().kind).toBe('expired');
+});
+
+test('读取途中平台明确返回登录失效时，使用同一次操作匿名重读', async () => {
+  class ExpiringFixture extends PlatformFixture {
+    override async get(url: string, options: GetOptions = {}): Promise<PublicResponse> {
+      if (new URL(url).pathname.endsWith('/wbi/view') && options.biliCookie)
+        return {url,status:200,headers:{},body:Buffer.from('{"code":-101}')};
+      return super.get(url, options);
+    }
+  }
+  const fixture = new ExpiringFixture(); fixture.acceptedSession = 'fixture-session';
+  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:fixture.acceptedSession}),storeSecret:()=>{throw new Error('unexpected write');}});
+  const result = await new BiliClient(login).read({bvid:'BV1aa411a7aa'},fixture,30);
+  expect(result.units.some(unit=>unit.kind==='text'&&unit.text.includes('开头。'))).toBe(true);
+  expect(login.state().kind).toBe('expired');
 });
 
 test.each([{bvid:'BV1aa411a7aa',cid:201},{aid:100,cid:201},{url:'https://www.bilibili.com/video/BV1aa411a7aa/?p=2'},{url:'https://b23.tv/short'}])('指定分P与短链均使用所选正文 %j', async input => {
