@@ -47,7 +47,13 @@
 
 每份材料默认保留最多 **300,000字符**，包含正文和缓存的链接地址。达到保留上限时，结果会标明内容不完整。续读内容和编号链接保存在内存，默认最多保留15分钟；失效或重启后需要重新读取。
 
-正文链接显示文字与编号，例如 `安装指南 [L1]`，不列网址。Agent 用原页 `pageRef` 和 `linkId` 调用 `surfing_open_link` 打开目标网页，再用目标页的 `pageRef` 和 `cursor` 调用 `surfing_read_page` 续读。
+正文链接显示文字与编号，例如 `安装指南 [L1]`，不列网址。`surfing_read_page` 支持三种调用方式：
+
+- 初读：`{url: "https://example.org/article"}`。
+- 打开编号链接：`{pageRef: "原页引用", linkId: "L1"}`。
+- 续读：`{pageRef: "目标页引用", cursor: "回执中的游标"}`，不带 `linkId`。
+
+原有 `{url, cursor}` 续读方式仍可使用。
 
 ## 适用范围
 

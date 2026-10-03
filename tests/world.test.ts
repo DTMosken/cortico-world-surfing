@@ -27,7 +27,7 @@ function context(): WorldContext<SurfingConfigSection> {
 
 test('独立 World 在没有 learn 或凭证时提供工具、登录和可调面板', () => {
   const world = new SurfingWorld(context());
-  expect(world.tools().map(x=>x.name)).toEqual(['surfing_read_page','surfing_read_bili','surfing_search_bili','surfing_open_link']);
+  expect(world.tools().map(x=>x.name)).toEqual(['surfing_read_page','surfing_read_bili','surfing_search_bili']);
   const groups = world.console().config!;
   const fields = groups.flatMap(group => Object.keys(group.schema.properties));
   expect(fields).toContain('worlds.surfing.reading.maxResponseEstimatedTokens');
@@ -166,12 +166,11 @@ test('主agent按正文编号打开目标页，目标 pageRef 续读不再请求
   });
   const world = new SurfingWorld(ctx, client); const call = { role: 'test', log: {} as never };
   const read = world.tools().find(x => x.name === 'surfing_read_page')!;
-  const open = world.tools().find(x => x.name === 'surfing_open_link')!;
   try {
     const first = result(await read.handler({ url: 'https://example.org/article' }, call));
     expect(first.failed).toBe(false); expect(first.content).toContain('安装指南 [L1]');
     expect(first.text).not.toMatch(/菜单|https?:\/\//);
-    let target = result(await open.handler({ pageRef: first.pageRef, linkId: 'L1' }, call));
+    let target = result(await read.handler({ pageRef: first.pageRef, linkId: 'L1' }, call));
     expect(target.failed).toBe(false); expect(target.pageRef).not.toBe(first.pageRef);
     expect(target.nextCursor).toBeTruthy(); expect(target.text).toContain('章节：install');
     let restored = target.content; const targetRef = target.pageRef;
@@ -189,7 +188,7 @@ test('主agent按正文编号打开目标页，目标 pageRef 续读不再请求
     const mismatch = result(await read.handler({ pageRef: first.pageRef, cursor: targetRef }, call));
     expect(mismatch.failed).toBe(true); expect(mismatch.text).toContain('不匹配');
     client.offline = false;
-    const last = result(await open.handler({ pageRef: targetRef, linkId: 'L1' }, call));
+    const last = result(await read.handler({ pageRef: targetRef, linkId: 'L1' }, call));
     expect(last.failed).toBe(false); expect(last.content).toContain('最后一页。');
   } finally { await world.stop(); }
 });
@@ -198,14 +197,34 @@ test('打开编号链接继续拒绝解析到内网的域名，无效编号不�
   const client = new PageFixtureClient({ '/article': '<main><p><a href="https://inside.example.net/">相关资料</a><a href="http://127.0.0.1/">本机</a></p></main>' });
   const world = new SurfingWorld(context(), client); const call = { role: 'test', log: {} as never };
   const read = world.tools().find(x => x.name === 'surfing_read_page')!;
-  const open = world.tools().find(x => x.name === 'surfing_open_link')!;
   try {
     const page = result(await read.handler({ url: 'https://example.org/article' }, call));
     expect(page.content).toContain('相关资料 [L1]'); expect(page.content).not.toContain('[L2]');
-    const blocked = result(await open.handler({ pageRef: page.pageRef, linkId: 'L1' }, call));
+    const blocked = result(await read.handler({ pageRef: page.pageRef, linkId: 'L1' }, call));
     expect(blocked.failed).toBe(true); expect(blocked.text).toContain('公网地址');
-    const missing = result(await open.handler({ pageRef: page.pageRef, linkId: 'L99' }, call));
+    const missing = result(await read.handler({ pageRef: page.pageRef, linkId: 'L99' }, call));
     expect(missing.failed).toBe(true); expect(missing.text).toContain('没有此链接编号');
     expect(client.requests).toEqual(['/article']);
+  } finally { await world.stop(); }
+});
+
+test('统一网页入口拒绝打开链接与续读参数混用，不请求目标页', async () => {
+  const client = new PageFixtureClient({ '/article': '<main><p><a href="/next">下一页</a></p></main>' });
+  const world = new SurfingWorld(context(), client); const call = { role: 'test', log: {} as never };
+  const read = world.tools().find(x => x.name === 'surfing_read_page')!;
+  try {
+    const page = result(await read.handler({ url: 'https://example.org/article' }, call));
+    for (const args of [
+      { pageRef: page.pageRef, linkId: 'L1', cursor: page.pageRef },
+      { url: 'https://example.org/article', linkId: 'L1' },
+      { url: 'https://example.org/article', pageRef: page.pageRef },
+      { pageRef: page.pageRef, linkId: 1 },
+    ]) {
+      const invalid = result(await read.handler(args, call));
+      expect(invalid.failed).toBe(true); expect(invalid.text).toMatch(/^\[tool failed\]/);
+    }
+    expect(client.requests).toEqual(['/article']);
+    const replay = result(await read.handler({ pageRef: page.pageRef }, call));
+    expect(replay).toEqual(page);
   } finally { await world.stop(); }
 });

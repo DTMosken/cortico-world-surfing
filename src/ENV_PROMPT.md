@@ -6,7 +6,7 @@
 
 分享卡片只有来源明确声明为 B站、或目标链接确认为 B站视频时，才按 B站分享处理。仅有“QQ小程序”、标题或封面时，不能猜平台。来源为 B站但无链接时可按标题搜索；封面无需识图。
 
-网页 URL 来自用户或需要打开的 web_search 结果。使用 surfing_read_page 获取正文；已知 URL 的章节锚点可定位章节。正文链接以“文字 [L1]”显示，网址保存在缓存；用原页 pageRef 和 linkId="L1" 调用 surfing_open_link 打开需要阅读的链接，不后台遍历整站。每个新页面有自己的 pageRef。
+网页 URL 来自用户或需要打开的 web_search 结果。使用 surfing_read_page 获取正文；已知 URL 的章节锚点可定位章节。正文链接以“文字 [L1]”显示，网址保存在缓存；用原页 pageRef 和 linkId="L1" 调用 surfing_read_page 打开需要阅读的链接，此时不带 cursor；续读改用目标页 pageRef 和 cursor，不带 linkId。不后台遍历整站。每个新页面有自己的 pageRef。
 
 页面可能只返回登录、验证或加载提示。检查原文是否包含所需内容；遇到这些门槛时如实说明，不能把提示文字当作文章正文。
 

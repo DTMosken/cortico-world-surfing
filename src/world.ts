@@ -12,13 +12,18 @@ import { SnapshotCache, estimateTokens, type Material } from './snapshots.ts';
 
 const ENV_PROMPT_FILE = fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url));
 
-const cursor = { type: 'string', maxLength: 256, description: '沿用回执末尾的续读 cursor，并保持原目标参数。' };
+const cursor = { type: 'string', maxLength: 256, description: '沿用回执末尾的续读 cursor。' };
 export const SURFING_TOOL_DECLS: ToolSpec[] = [
   {
-    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页正文，返回预算内原文片段；可用 cursor 继续。URL 的章节锚点可定位长文。仅接受公开域名。',
-    parameters: { type: 'object', additionalProperties: false, oneOf: [{ required: ['url'] }, { required: ['pageRef'] }], properties: {
+    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页正文：提供 URL 初读，或用原页 pageRef 与 linkId 打开正文编号链接；用目标页 pageRef 与 cursor 续读。打开链接时不带 cursor。返回预算内原文，仅接受公开域名，支持 URL 章节锚点。',
+    parameters: { type: 'object', additionalProperties: false, oneOf: [
+      { required: ['url'], not: { required: ['linkId'] } },
+      { required: ['pageRef'], not: { required: ['linkId'] } },
+      { required: ['pageRef', 'linkId'], not: { anyOf: [{ required: ['url'] }, { required: ['cursor'] }] } },
+    ], properties: {
       url: { type: 'string', maxLength: 8192, description: '用户提供或搜索结果中需要打开的 HTTP(S) URL。' },
-      pageRef: { type: 'string', maxLength: 256, description: '网页回执中的 pageRef；配合 cursor 续读已缓存的页面，无需 URL。' }, cursor,
+      pageRef: { type: 'string', maxLength: 256, description: '网页回执中的 pageRef；打开链接时用原页引用，续读时用目标页引用。' },
+      linkId: { type: 'string', pattern: '^L[1-9][0-9]*$', description: '打开正文中的链接编号，如 L1；需配合原页 pageRef，不带 cursor。' }, cursor,
     } },
   },
   {
@@ -34,13 +39,6 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
     name: 'surfing_search_bili', tags: ['read'], description: '独立搜索 B站视频，返回标题、BV、UP主与时长。明确要求找视频时调用；查梗或概念可使用“关键词 梗知识”。可用 cursor 继续。',
     parameters: { type: 'object', additionalProperties: false, required: ['query'], properties: {
       query: { type: 'string', minLength: 1, maxLength: 240 }, cursor,
-    } },
-  },
-  {
-    name: 'surfing_open_link', tags: ['read'], description: '打开已读网页正文中的编号链接，读取目标网页；只需原页 pageRef 和 L1 等链接编号。目标页可用其 pageRef 与 cursor 续读，沿用公开网络限制。',
-    parameters: { type: 'object', additionalProperties: false, required: ['pageRef', 'linkId'], properties: {
-      pageRef: { type: 'string', maxLength: 256, description: '包含该编号链接的网页回执中的 pageRef。' },
-      linkId: { type: 'string', pattern: '^L[1-9][0-9]*$', description: '正文中的链接编号，如 L1。' },
     } },
   },
 ];
@@ -87,18 +85,19 @@ export class SurfingWorld implements World {
         if (args.pageRef !== undefined) {
           if (typeof args.pageRef !== 'string' || args.url !== undefined)
             throw new ReadError('invalid_input', '提供网页 pageRef 或 URL，两者只需一个。');
-          ({ key, cursor } = this.cache.pageCursor(args.pageRef, cursor, config));
+          if (args.linkId !== undefined) {
+            if (typeof args.linkId !== 'string' || !/^L[1-9][0-9]*$/.test(args.linkId) || args.cursor !== undefined)
+              throw new ReadError('invalid_input', '打开链接时提供 L1 等 linkId，不带 cursor；续读用目标页 pageRef 和 cursor。');
+            const url = this.cache.link(args.pageRef, args.linkId, config);
+            key = pageKey(url);
+            material = await this.pages.read(url, operation, config.network.maxDownloadBytes);
+          } else ({ key, cursor } = this.cache.pageCursor(args.pageRef, cursor, config));
         } else {
+          if (args.linkId !== undefined) throw new ReadError('invalid_input', '打开编号链接需提供原页 pageRef 和 linkId。');
           if (typeof args.url !== 'string') throw new ReadError('invalid_input', '提供需要读取的网页 URL 或 pageRef。');
           key = pageKey(args.url);
           if (!cursor) material = await this.pages.read(args.url, operation, config.network.maxDownloadBytes);
         }
-      } else if (name === 'surfing_open_link') {
-        if (typeof args.pageRef !== 'string' || typeof args.linkId !== 'string' || !/^L[1-9][0-9]*$/.test(args.linkId))
-          throw new ReadError('invalid_input', '提供原页 pageRef 和 L1 等链接编号。');
-        const url = this.cache.link(args.pageRef, args.linkId, config);
-        key = pageKey(url);
-        material = await this.pages.read(url, operation, config.network.maxDownloadBytes);
       } else if (name === 'surfing_read_bili') {
         const input: BiliInput = { bvid: args.bvid as string | undefined, aid: args.aid as number | undefined,
           cid: args.cid as number | undefined, url: args.url as string | undefined };
