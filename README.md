@@ -1,4 +1,4 @@
-<!-- Owner: src/definition.ts -->
+<!-- Owner: src/definition.ts, src/world.ts, src/network.ts, src/bili-login.ts -->
 # 网上冲浪
 
 让 Cortico 阅读网页和B站视频字幕，搜索视频，并根据读到的内容回答问题。发送链接或BV号即可使用，默认匿名读取，B站登录可选。
@@ -23,9 +23,17 @@
    corepack pnpm install:browser
    ```
 
+## World 兼容性
+
+按 [Cortico World 兼容等级](https://github.com/Pal-AI-Lab/Cortico/blob/main/docs/world-compatibility.md)，本 World 的最低等级为 **L1**，完整等级为 **L2**。
+
+L1 宿主可调用全部阅读工具；读取受单次超时与 `stop()` 取消控制。L2 宿主还通过 `ToolCallContext.signal` 取消单次调用。本 World 不使用事件投递或实时输出。
+
+挂载时须提供 `WorldContext` 的配置、部署路径和密钥读写，用 `envPromptVars()` 填充 `ENV_PROMPT.md` 并将环境描述加入 system 前缀。控制台不计入等级；没有控制台时由宿主提供配置，匿名读取可用，本包的扫码登录面板不可用。
+
 ## 使用示例
 
-- “看看BV\*\*\*\*\*\*，讲了什么。”
+- “看看BV12345abc，讲了什么。”
 - “去B站搜一下‘破防’，读完解释这个梗。”
 - “打开这个网页链接，看看文中的条件。”
 - “继续读刚才那篇文章。”
