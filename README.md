@@ -13,7 +13,7 @@
 
 ## 安装与配置
 
-需要支持 World 扩展 API 5 的 Cortico，以及 Node.js 22.12 以上的22系列或24以上版本。
+需要 Cortico 0.1.7 或更新版本（World 扩展 API 5），以及 Node.js 22.12 以上的22系列或24以上版本。
 
 1. 在 Cortico 扩展管理页安装本项目的本地目录。
 2. 重启 Cortico 进程，启用“网上冲浪”。
@@ -25,9 +25,9 @@
 
 ## World 兼容性
 
-按 [Cortico World 兼容等级](https://github.com/Pal-AI-Lab/Cortico/blob/main/docs/world-compatibility.md)，本 World 的最低等级为 **L1**，完整等级为 **L2**。
+按 [Cortico World 兼容等级](https://github.com/Pal-AI-Lab/Cortico/blob/main/docs/world-compatibility.md)，本 World 的最低等级为 **L1**，完整等级为 **L3**。
 
-L1 宿主可调用全部阅读工具；读取受单次超时与 `stop()` 取消控制。L2 宿主还通过 `ToolCallContext.signal` 取消单次调用。本 World 不使用事件投递或实时输出。
+L1 宿主可调用全部阅读工具；读取受单次超时与 `stop()` 取消控制。L2 宿主还通过 `ToolCallContext.signal` 取消单次调用。三个工具均声明 `interruptible`，L3 宿主收到 `interrupt` 事件时会取消正在执行的读取；工具返回回执后继续处理新事件。本 World 不主动投递事件，不使用实时输出。
 
 挂载时须提供 `WorldContext` 的配置、部署路径和密钥读写，用 `envPromptVars()` 填充 `ENV_PROMPT.md` 并将环境描述加入 system 前缀。控制台不计入等级；没有控制台时由宿主提供配置，匿名读取可用，本包的扫码登录面板不可用。
 

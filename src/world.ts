@@ -66,7 +66,7 @@ export class SurfingWorld implements World {
   }
 
   tools(): ToolDef[] {
-    return SURFING_TOOL_DECLS.map(tool => ({ ...tool, handler: (args, call) => this.read(tool.name, args, call) }));
+    return SURFING_TOOL_DECLS.map(tool => ({ ...tool, interruptible: true, handler: (args, call) => this.read(tool.name, args, call) }));
   }
 
   private async read(name: string, args: Record<string, unknown>, call: ToolCallContext): Promise<ToolOutcome> {

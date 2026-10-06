@@ -1,4 +1,19 @@
-import { expect, test } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { expect, test, vi } from 'vitest';
+import { WakeBus } from 'cortico/core/bus.ts';
+import { CORE_DEFAULTS } from 'cortico/core/config.ts';
+import { JsonlEventStore } from 'cortico/core/event-store.ts';
+import { unknownMeters, type ResponseClient } from 'cortico/core/generation.ts';
+import { MainLoop } from 'cortico/core/loop.ts';
+import { INTERRUPTED_WHILE_RUNNING } from 'cortico/core/markers.ts';
+import { SessionLog } from 'cortico/core/session.ts';
+import { CoreState } from 'cortico/core/state.ts';
+import type { Persona, SessionDecl } from 'cortico/core/types.ts';
+import { nullLogger } from 'cortico/core/util.ts';
+import { createResponse } from 'cortico/protocol/open-responses/index.ts';
+import { itemText, type ContextRecord } from 'cortico/protocol/open-responses/context.ts';
 import type { WorldContext } from 'cortico/world.ts';
 import { SURFING } from '../src/definition.ts';
 import { SurfingWorld } from '../src/world.ts';
@@ -138,6 +153,92 @@ test('取消首个搜索等待者后，其他调用可在自己的时限内继�
   expect(complete.content).toContain('第2页');
   expect(result(await tool.handler(args,call))).toEqual(complete);
   await world.stop();
+});
+
+test.each([
+  { name: 'surfing_read_page', args: { url: 'https://example.org/article' } },
+  { name: 'surfing_read_bili', args: { bvid: 'BV1aa411a7aa' } },
+  { name: 'surfing_search_bili', args: { query: '竞赛' } },
+])('interrupt 取消 $name 的在途读取，回执之后投递新事件', async ({ name, args }) => {
+  let waiting = false;
+  class WaitingFixture extends PlatformFixture {
+    override get(): ReturnType<PlatformFixture['get']> {
+      waiting = true;
+      return new Promise(() => {});
+    }
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'surfing-interrupt-'));
+  const world = new SurfingWorld(context(), new FixtureClient(new WaitingFixture()));
+  const cfg = { ...structuredClone(CORE_DEFAULTS), timezone: 'UTC' };
+  const bus = new WakeBus(cfg.batching);
+  const session = new SessionLog(dir);
+  const store = new JsonlEventStore({ dataDir: dir, run: 'r-20260101-000000-0001' });
+  const decl: SessionDecl = {
+    id: 'main', label: 'main', persistent: true, receivesEvents: true,
+    eventDelivery: 'user', rounds: () => ({ soft: 3, hard: 4 }), tools: () => world.tools(),
+  };
+  const persona: Persona = {
+    memoryDir: dir,
+    blobs: { put: () => { throw new Error('No attachments in this test'); }, get: () => null, list: () => [] },
+    attach() {}, systemSegments: async () => [], declareSessions: () => [decl],
+  };
+  let requested = false;
+  let resumed: readonly ContextRecord[] | undefined;
+  const origin = { instance: 'test', module: 'test', model: 'test', compatibilityDomain: 'test' };
+  const llm: ResponseClient = {
+    async respond(request, options) {
+      const response = createResponse(requested ? 'resumed' : 'reading', request);
+      response.status = 'completed';
+      if (!requested) {
+        requested = true;
+        response.output = [{
+          type: 'function_call', id: 'fc_read', call_id: 'read', name,
+          arguments: JSON.stringify(args), status: 'completed',
+        }];
+      } else {
+        resumed = options?.context;
+      }
+      return {
+        response, origin,
+        attempts: [{
+          id: response.id, generationId: response.id, ordinal: 0, origin,
+          startedAt: new Date().toISOString(), elapsedMs: 0, requestId: null, responseId: response.id,
+          outcome: 'completed', status: 200, serviceTier: null, meters: unknownMeters(), charges: [],
+        }],
+      };
+    },
+  };
+  const loop = new MainLoop({
+    cfg, llm, persona, decl, bus, session, store, state: new CoreState(dir), log: nullLogger(),
+    spec: () => ({ model: 'test', thinking: false }),
+    context: { hardTokens: () => null, estimateTokens: () => 0, contextOverflow: () => false },
+    blobs: { intern: () => undefined }, worlds: { all: () => [world], visible: () => [world] },
+  });
+  bus.setPreemptHandler(trigger => {
+    if (trigger === 'interrupt') loop.interruptCurrentRound();
+    else loop.abortCurrentRound();
+  });
+  const event = (text: string) => store.append({
+    type: 'test.message', source: 'test', origin: 'external', ts: new Date().toISOString(), text,
+  });
+  const running = loop.run();
+  try {
+    bus.push({ event: event('开始读取') }, { trigger: 'flush' });
+    await vi.waitFor(() => expect(waiting).toBe(true));
+    bus.push({ event: event('停止读取') }, { trigger: 'interrupt' });
+    await vi.waitFor(() => expect(resumed).toBeDefined());
+    const receiptIndex = resumed!.findIndex(entry => entry.item.type === 'function_call_output'
+      && entry.item.call_id === 'read');
+    expect(receiptIndex).toBeGreaterThanOrEqual(0);
+    expect(itemText(resumed![receiptIndex].item)).toContain(INTERRUPTED_WHILE_RUNNING);
+    const eventIndex = resumed!.findIndex(entry => itemText(entry.item).includes('停止读取'));
+    expect(eventIndex).toBeGreaterThan(receiptIndex);
+  } finally {
+    loop.stop();
+    await running;
+    await world.stop();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 class PageFixtureClient extends PublicClient {
