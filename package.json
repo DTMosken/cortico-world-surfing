@@ -5,9 +5,21 @@
   "description": "读取公开网页正文和 B站字幕，支持视频搜索、分段续读和可调返回量。",
   "author": "DTMosken",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DTMosken/cortico-world-surfing.git"
+  },
+  "homepage": "https://github.com/DTMosken/cortico-world-surfing#readme",
+  "bugs": {
+    "url": "https://github.com/DTMosken/cortico-world-surfing/issues"
+  },
   "keywords": [
     "cortico-world",
-    "cortico"
+    "cortico",
+    "bilibili",
+    "web-reader",
+    "subtitles",
+    "playwright"
   ],
   "engines": {
     "node": "^22.12.0 || >=24.0.0"
@@ -25,8 +37,7 @@
     "dist",
     "scripts/install-browser.mjs",
     "README.md",
-    "LICENSE",
-    "THIRD_PARTY_NOTICES.md"
+    "LICENSE"
   ],
   "scripts": {
     "test": "node scripts/build-engine.mjs && vitest run",
