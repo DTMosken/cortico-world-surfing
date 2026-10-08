@@ -21,18 +21,18 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
       { required: ['pageRef'], not: { required: ['linkId'] } },
       { required: ['pageRef', 'linkId'], not: { anyOf: [{ required: ['url'] }, { required: ['cursor'] }] } },
     ], properties: {
-      url: { type: 'string', maxLength: 8192, description: '用户提供或搜索结果中需要打开的 HTTP(S) URL。' },
+      url: { type: 'string', maxLength: 8192, description: '用户提供、分享卡片或搜索结果中的公开 HTTP(S) 网页 URL。' },
       pageRef: { type: 'string', maxLength: 256, description: '网页回执中的 pageRef；打开链接时用原页引用，续读时用目标页引用。' },
       linkId: { type: 'string', pattern: '^L[1-9][0-9]*$', description: '打开正文中的链接编号，如 L1；需配合原页 pageRef，不带 cursor。' }, cursor,
     } },
   },
   {
-    name: 'surfing_read_bili', tags: ['read'], description: '读取 B站视频人工或 AI 字幕；可选登录由面板管理。提供 BV 即可；可指定 cid 或 URL 中的 p 选择分P。回执为字幕原文片段，未取得字幕不代表无音频。',
+    name: 'surfing_read_bili', tags: ['read'], description: '读取 B站视频人工或 AI 字幕；可选登录由面板管理。提供 BV 或视频链接即可；可指定 cid 或 URL 中的 p 选择分P。回执为字幕原文片段，未取得字幕不代表无音频。',
     parameters: { type: 'object', additionalProperties: false, anyOf: [{ required: ['bvid'] }, { required: ['aid'] }, { required: ['url'] }], properties: {
       bvid: { type: 'string', pattern: '^BV[0-9A-Za-z]{10}$', description: '视频 BV号。' },
       aid: { type: 'integer', minimum: 1, description: '稿件 aid；不知道时只给 BV 或 URL。' },
       cid: { type: 'integer', minimum: 1, description: '特定分P的 cid；省略时按 URL 的 p 或第1P读取。' },
-      url: { type: 'string', maxLength: 8192, description: 'B站视频长链或 b23.tv 短链。' }, cursor,
+      url: { type: 'string', maxLength: 8192, description: 'B站视频长链或 b23.tv 短链，可直接使用分享卡片中的链接。' }, cursor,
     } },
   },
   {

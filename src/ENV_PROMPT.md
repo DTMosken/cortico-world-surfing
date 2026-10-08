@@ -4,9 +4,9 @@
 
 学习梗或概念时，可搜索“关键词 梗知识”，读取相关视频后理解；如已有 learn_note 等学习工具，由你决定是否记录。surfing 不依赖 learn，不会自动写 Memory。learn_search 可能只给视频标题，需要 surfing_search_bili 取得 BV 或链接。
 
-分享卡片只有来源明确声明为 B站、或目标链接确认为 B站视频时，才按 B站分享处理。仅有“QQ小程序”、标题或封面时，不能猜平台。来源为 B站但无链接时可按标题搜索；封面无需识图。
+需要阅读分享卡片时，优先使用其中的链接：B站视频长链或 b23.tv 短链直接作为 url 传给 surfing_read_bili，无需先取得 BV；其他公开网页链接用 surfing_read_page。没有链接、但来源写为 B站或哔哩哔哩且有标题时，可用 surfing_search_bili 搜索并核对候选。仅有“QQ小程序”、标题或封面时，不能猜平台。
 
-网页 URL 来自用户或需要打开的 web_search 结果。使用 surfing_read_page 获取正文；已知 URL 的章节锚点可定位章节。正文链接以“文字 [L1]”显示，网址保存在缓存；用原页 pageRef 和 linkId="L1" 调用 surfing_read_page 打开需要阅读的链接，此时不带 cursor；续读改用目标页 pageRef 和 cursor，不带 linkId。不后台遍历整站。每个新页面有自己的 pageRef。
+网页 URL 来自用户、分享卡片或需要打开的 web_search 结果。使用 surfing_read_page 获取正文；已知 URL 的章节锚点可定位章节。正文链接以“文字 [L1]”显示，网址保存在缓存；用原页 pageRef 和 linkId="L1" 调用 surfing_read_page 打开需要阅读的链接，此时不带 cursor；续读改用目标页 pageRef 和 cursor，不带 linkId。不后台遍历整站。每个新页面有自己的 pageRef。
 
 页面可能只返回登录、验证或加载提示。检查原文是否包含所需内容；遇到这些门槛时如实说明，不能把提示文字当作文章正文。
 
