@@ -63,8 +63,9 @@ test('重试等待响应同一次读取的超时，不发起后续请求', async
 });
 
 test('登录后取得播放器字幕，凭证不传给字幕 CDN', async () => {
-  const fixture = new PlatformFixture(); fixture.acceptedSession = 'fixture-session'; fixture.emptyResponses = Infinity;
-  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:fixture.acceptedSession}),storeSecret:()=>{throw new Error('unexpected write');}});
+  const sessdata = 'fixture-session';
+  const fixture = new PlatformFixture(); fixture.acceptedSession = sessdata; fixture.emptyResponses = Infinity;
+  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:sessdata}),storeSecret:()=>{throw new Error('unexpected write');}});
   const result = await new BiliClient(login).read({bvid:'BV1aa411a7aa'},fixture,30);
   expect(result.units.some(unit=>unit.kind==='text'&&unit.text.includes('开头。'))).toBe(true);
   expect(fixture.nativeRequests).toBe(0);
@@ -72,8 +73,9 @@ test('登录后取得播放器字幕，凭证不传给字幕 CDN', async () => {
 });
 
 test('登录播放器轨道为空时，仍可通过原生接口取得字幕', async () => {
-  const fixture = new PlatformFixture(); fixture.acceptedSession = 'fixture-session'; fixture.playerEmpty = true;
-  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:fixture.acceptedSession}),storeSecret:()=>{throw new Error('unexpected write');}});
+  const sessdata = 'fixture-session';
+  const fixture = new PlatformFixture(); fixture.acceptedSession = sessdata; fixture.playerEmpty = true;
+  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:sessdata}),storeSecret:()=>{throw new Error('unexpected write');}});
   const result = await new BiliClient(login).read({bvid:'BV1aa411a7aa'},fixture,30);
   expect(result.units.some(unit=>unit.kind==='text'&&unit.text.includes('开头。'))).toBe(true);
   expect(fixture.nativeRequests).toBe(1);
@@ -95,8 +97,9 @@ test('读取途中平台明确返回登录失效时，使用同一次操作匿�
       return super.get(url, options);
     }
   }
-  const fixture = new ExpiringFixture(); fixture.acceptedSession = 'fixture-session';
-  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:fixture.acceptedSession}),storeSecret:()=>{throw new Error('unexpected write');}});
+  const sessdata = 'fixture-session';
+  const fixture = new ExpiringFixture(); fixture.acceptedSession = sessdata;
+  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:sessdata}),storeSecret:()=>{throw new Error('unexpected write');}});
   const result = await new BiliClient(login).read({bvid:'BV1aa411a7aa'},fixture,30);
   expect(result.units.some(unit=>unit.kind==='text'&&unit.text.includes('开头。'))).toBe(true);
   expect(login.state().kind).toBe('expired');
