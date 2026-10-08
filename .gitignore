@@ -3,3 +3,4 @@ scratch/
 coverage/
 *.tgz
 .pnpm-store/
+.worktrees/
