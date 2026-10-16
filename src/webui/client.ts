@@ -1,4 +1,4 @@
-import type { ConsoleClientBundle } from 'cortico/web/shared/client-panel.ts';
+import type { WebUiClientBundle } from 'cortico/web/shared/client-panel.ts';
 import type { BiliLoginState } from '../bili-login.ts';
 
 const labels: Record<BiliLoginState['kind'], string> = {
@@ -51,4 +51,4 @@ export default {
       },
     },
   },
-} satisfies ConsoleClientBundle;
+} satisfies WebUiClientBundle;

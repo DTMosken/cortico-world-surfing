@@ -6,12 +6,12 @@ import { JSDOM } from 'jsdom';
 import { secretReader } from 'cortico/core/secrets.ts';
 import { h } from 'cortico/web/client/ui/dom.ts';
 import { sheet, actions, button, msgline } from 'cortico/web/client/ui/sheet.ts';
-import type { ConsolePanelContext, ConsoleUi } from 'cortico/web/shared/client-panel.ts';
+import type { WebUiPanelContext, WebUi } from 'cortico/web/shared/client-panel.ts';
 import type { WorldContext } from 'cortico/world.ts';
 import { BiliLogin } from '../src/bili-login.ts';
 import { SURFING_DEFAULTS, SURFING_BILI_SECRET, type SurfingConfigSection } from '../src/config.ts';
 import { SurfingWorld } from '../src/world.ts';
-import bundle from '../src/console/client.ts';
+import bundle from '../src/webui/client.ts';
 import { PublicClient, type GetOptions, type PublicResponse } from '../src/network.ts';
 import { PlatformFixture } from './platform-fixture.ts';
 
@@ -127,11 +127,11 @@ test('World 停用时取消扫码但保留凭证，面板仍可退出并清除�
   class FixtureClient extends PublicClient { override operation() { return fixture; } }
   const world = new SurfingWorld({ ...secrets, id:'surfing', cfg:structuredClone(SURFING_DEFAULTS), timezone:'UTC', botName:'test',
     botDir:'.', packageDir:'.', dataDir:'.', repoRoot:'.', persist(){}, async restart(){} }, new FixtureClient());
-  await world.console().invoke!('login','start',[]);
+  await world.webUi().invoke!('login','start',[]);
   await world.stop(); fixture.offline = true;
-  expect(await world.console().invoke!('login','state',[])).toEqual({kind:'unverified'});
+  expect(await world.webUi().invoke!('login','state',[])).toEqual({kind:'unverified'});
   expect(JSON.parse(secrets.secret(SURFING_BILI_SECRET)).SESSDATA).toBe(fixture.acceptedSession);
-  expect(await world.console().invoke!('login','logout',[])).toEqual({kind:'anonymous'});
+  expect(await world.webUi().invoke!('login','logout',[])).toEqual({kind:'anonymous'});
   expect(secrets.secret(SURFING_BILI_SECRET)).toBe('{}');
 });
 
@@ -144,16 +144,16 @@ test('登录面板展示扫码、确认、登录和退出；卸载后不再请�
   const dom = new JSDOM('<main></main>'); const doc = dom.window.document;
   const life = new dom.window.AbortController(); const root = doc.querySelector('main')!;
   const ui = { h:(tag,cls,text)=>h(doc,tag,cls,text), sheet:opts=>sheet(doc,opts), actions:()=>actions(doc),
-    button:(label,opts)=>button(doc,life.signal,label,opts), msgline:(text,bad)=>msgline(doc,text,bad) } as ConsoleUi;
+    button:(label,opts)=>button(doc,life.signal,label,opts), msgline:(text,bad)=>msgline(doc,text,bad) } as WebUi;
   let tick:()=>void = ()=>{};
   let calls = 0;
-  const panel: Pick<ConsolePanelContext, 'root' | 'ui' | 'signal' | 'invoke' | 'interval'> = {
+  const panel: Pick<WebUiPanelContext, 'root' | 'ui' | 'signal' | 'invoke' | 'interval'> = {
     root, ui, signal:life.signal,
-    invoke<T>(method:string){calls++;return world.console().invoke!('login',method,[]) as Promise<T>},
+    invoke<T>(method:string){calls++;return world.webUi().invoke!('login',method,[]) as Promise<T>},
     interval(fn:()=>void){tick=fn;return{dispose(){}}},
   };
   try {
-    await bundle.panels.login.mount(panel as ConsolePanelContext);
+    await bundle.panels.login.mount(panel as WebUiPanelContext);
     expect(root.textContent).toContain('未登录');
     root.querySelector<HTMLButtonElement>('button')!.click();
     await vi.waitFor(()=>expect(root.textContent).toContain('等待扫码'));

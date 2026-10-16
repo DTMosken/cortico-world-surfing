@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ToolDef, ToolSpec, ToolOutcome, ToolCallContext, World, WorldConsoleDecl, WorldHost } from 'cortico/core/types.ts';
+import type { ToolDef, ToolSpec, ToolOutcome, ToolCallContext, World, WorldWebUiDecl, WorldHost } from 'cortico/core/types.ts';
 import type { WorldContext } from 'cortico/world.ts';
 import { SURFING_DEFAULTS, SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP, applyBiliDefaults, validateConfig, type SurfingConfigSection } from './config.ts';
 import { BiliClient, biliKey, type BiliInput } from './bili.ts';
@@ -153,7 +153,7 @@ export class SurfingWorld implements World {
     }
   }
 
-  console(): WorldConsoleDecl {
+  webUi(): WorldWebUiDecl {
     const override = join(this.ctx.botDir, 'prompts', 'worlds', 'surfing', 'ENV_PROMPT.md');
     return {
       label: '网上冲浪',

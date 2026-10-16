@@ -16,9 +16,15 @@
   "main": "./src/definition.ts",
   "cortico": {
     "kind": "world",
-    "api": 5,
+    "api": 6,
     "displayName": "网上冲浪",
-    "consoleClient": "dist/console.js"
+    "webUiClient": "dist/webui.js",
+    "tags": [
+      "internet",
+      "browser",
+      "video"
+    ],
+    "describe": "describe.json"
   },
   "files": [
     "src",
@@ -26,12 +32,16 @@
     "scripts/install-browser.mjs",
     "README.md",
     "LICENSE",
-    "THIRD_PARTY_NOTICES.md"
+    "THIRD_PARTY_NOTICES.md",
+    "describe.json",
+    "CHANGELOG.md",
+    "AGENTS.md",
+    "CLAUDE.md"
   ],
   "scripts": {
     "test": "node scripts/build-engine.mjs && vitest run",
     "build:engine": "node scripts/build-engine.mjs",
-    "build:console": "node scripts/build-engine.mjs",
+    "build:webui": "node scripts/build-engine.mjs",
     "typecheck": "tsc --noEmit",
     "install:browser": "node scripts/install-browser.mjs"
   },
@@ -45,7 +55,7 @@
   "devDependencies": {
     "@types/jsdom": "^27.0.0",
     "@types/node": "^22.10.0",
-    "cortico": "^0.1.7",
+    "cortico": "^0.2.1",
     "esbuild": "0.28.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
