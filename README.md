@@ -1,4 +1,4 @@
-<!-- Owner: src/definition.ts, src/world.ts, src/ENV_PROMPT.md, src/network.ts, src/bili.ts -->
+<!-- Owner: package.json, src/definition.ts, src/world.ts, src/ENV_PROMPT.md, src/network.ts, src/bili.ts -->
 # 网上冲浪
 
 让 Cortico 阅读网页和B站视频字幕，搜索视频，并根据读到的内容回答问题。发送链接或BV号即可使用，B站字幕和搜索均匿名读取。
@@ -15,7 +15,7 @@
 
 需要 Cortico 0.2.1 或更新版本（World 扩展 API 6），以及 Node.js 22.12 以上的22系列或24以上版本。
 
-1. 在 Cortico 扩展管理页安装本项目的本地目录。
+1. 在 Cortico 扩展管理页输入 `cortico-world-surfing` 安装 npm 包；使用本地源码时选择本项目目录。
 2. 重启 Cortico 进程，启用“网上冲浪”。
 3. 如需读取依赖脚本加载正文的网页，在扩展目录执行一次：
 

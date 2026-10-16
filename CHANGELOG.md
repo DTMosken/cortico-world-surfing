@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 - 2026-10-16
 
 - Remove Bilibili QR login, saved-session handling and the login panel. Subtitle reading and search use anonymous requests; deployments can remove `CORTICO_SURFING_BILI_SESSION` from `.env`.
 - Target Cortico 0.2.1 and world contract 6.
