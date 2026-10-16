@@ -1,7 +1,5 @@
 import type { ConfigGroup } from 'cortico/core/types.ts';
 
-export const SURFING_BILI_SECRET = 'CORTICO_SURFING_BILI_SESSION';
-
 export interface SurfingConfigSection {
   enabled: boolean;
   reading: { maxResponseEstimatedTokens: number; maxSourceChars: number };

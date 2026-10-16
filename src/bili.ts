@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { JSDOM } from 'jsdom';
 import { SURFING_DEFAULTS, type SurfingConfigSection } from './config.ts';
-import { BiliLogin } from './bili-login.ts';
 import { ReadError, validatePublicUrl, type ReadOperation } from './network.ts';
 import type { Material, Unit } from './snapshots.ts';
 
@@ -12,7 +11,6 @@ const videoHosts = new Set(['bilibili.com', 'www.bilibili.com', 'm.bilibili.com'
 export interface BiliInput { bvid?: string; aid?: number; cid?: number; url?: string }
 interface WbiImages { img_url: string; sub_url: string }
 interface Part { cid: number; page: number; part: string; duration: number }
-class SessionExpired extends ReadError { constructor() { super('access_denied', 'B站登录态已失效。'); } }
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ReadError('protocol_error', '平台响应格式发生变化。');
@@ -57,20 +55,9 @@ export function signWbi(params: Record<string, string | number>, images: WbiImag
 
 export class BiliClient {
   private wbi?: { images: WbiImages; expiresAtMs: number };
-  constructor(private readonly login?: BiliLogin) {}
 
-  private async withLogin<T>(operation: ReadOperation, read: (cookie?: string) => Promise<T>): Promise<T> {
-    const cookie = await this.login?.cookie(operation);
-    try { return await read(cookie); }
-    catch (error) {
-      if (!(error instanceof SessionExpired) || !this.login) throw error;
-      this.login.expire(cookie);
-      return read(await this.login.cookie(operation));
-    }
-  }
-
-  private async json(operation: ReadOperation, url: string, allowHost: (host: string) => boolean, checkCode = true, cookie?: string): Promise<Record<string, unknown>> {
-    const response = await operation.get(url, { allowHost, headers: { referer: 'https://www.bilibili.com/' }, biliCookie: cookie });
+  private async json(operation: ReadOperation, url: string, allowHost: (host: string) => boolean, checkCode = true): Promise<Record<string, unknown>> {
+    const response = await operation.get(url, { allowHost, headers: { referer: 'https://www.bilibili.com/' } });
     if (response.status === 404) throw new ReadError('not_found', '视频或字幕不存在。');
     if (response.status !== 200) throw new ReadError('access_denied', `B站读取请求失败（HTTP ${response.status}）。`);
     let result: Record<string, unknown>;
@@ -78,16 +65,15 @@ export class BiliClient {
     catch { throw new ReadError('protocol_error', '平台返回了无法解析的响应。'); }
     if (result.code !== undefined && !Number.isInteger(result.code)) throw new ReadError('protocol_error', '平台响应代码格式发生变化。');
     if (checkCode && result.code !== undefined && result.code !== 0) {
-      if (result.code === -101 && cookie) throw new SessionExpired();
       if (result.code === -404 || result.code === 62002) throw new ReadError('not_found', '视频不存在或不可公开访问。');
       throw new ReadError('access_denied', `B站未允许本次读取（代码 ${result.code}）。`);
     }
     return result;
   }
 
-  private async signed(operation: ReadOperation, path: string, params: Record<string, string | number>, cookie?: string): Promise<string> {
+  private async signed(operation: ReadOperation, path: string, params: Record<string, string | number>): Promise<string> {
     if (!this.wbi || this.wbi.expiresAtMs < Date.now()) {
-      const nav = await this.json(operation, API + '/x/web-interface/nav', host => host === 'api.bilibili.com', false, cookie);
+      const nav = await this.json(operation, API + '/x/web-interface/nav', host => host === 'api.bilibili.com', false);
       const images = object(object(nav.data).wbi_img);
       this.wbi = { images: { img_url: text(images.img_url), sub_url: text(images.sub_url) }, expiresAtMs: Date.now() + 3600000 };
     }
@@ -96,12 +82,6 @@ export class BiliClient {
 
   async read(input: BiliInput, operation: ReadOperation, groupSec: number,
     retry: Pick<SurfingConfigSection['bili'], 'maxSubtitleRetries' | 'subtitleRetryDelayMs'> = SURFING_DEFAULTS.bili): Promise<Material> {
-    validateBiliInput(input);
-    return this.withLogin(operation, cookie => this.readVideo(input, operation, groupSec, retry, cookie));
-  }
-
-  private async readVideo(input: BiliInput, operation: ReadOperation, groupSec: number,
-    retry: Pick<SurfingConfigSection['bili'], 'maxSubtitleRetries' | 'subtitleRetryDelayMs'>, cookie?: string): Promise<Material> {
     validateBiliInput(input);
     let bvid = input.bvid, aid = input.aid;
     let requestedPage: number | undefined;
@@ -129,7 +109,7 @@ export class BiliClient {
       }
     }
     const params: Record<string, string | number> = bvid ? { bvid } : { aid: aid! };
-    const result = await this.json(operation, await this.signed(operation, '/x/web-interface/wbi/view', params, cookie), host => host === 'api.bilibili.com', true, cookie);
+    const result = await this.json(operation, await this.signed(operation, '/x/web-interface/wbi/view', params), host => host === 'api.bilibili.com');
     const metadata = object(result.data);
     const actualAid = id(metadata.aid, 'aid', 'protocol_error');
     const actualBvid = text(metadata.bvid);
@@ -151,7 +131,7 @@ export class BiliClient {
     for (let attempt = 0; attempt <= retry.maxSubtitleRetries; attempt++) {
       if (attempt) await delay(retry.subtitleRetryDelayMs * 2 ** (attempt - 1), undefined, { signal: operation.signal });
       operation.signal.throwIfAborted();
-      const tracks = await this.subtitleTracks(operation, actualBvid, actualAid, selected, cookie);
+      const tracks = await this.subtitleTracks(operation, actualBvid, actualAid, selected);
       track = tracks.find(item => item.language === 'zh-Hans') ?? tracks.find(item => item.language === 'ai-zh') ?? tracks[0];
       if (!track) continue;
       const subtitle = await this.json(operation, resolveSubtitleUrl(track.url), host => host.endsWith('.hdslb.com'));
@@ -184,23 +164,12 @@ export class BiliClient {
         durationSec: selected.duration, subtitleGroupSec: groupSec } };
   }
 
-  private async subtitleTracks(operation: ReadOperation, bvid: string, aid: number, part: Part, cookie?: string): Promise<SubtitleTrack[]> {
-    if (cookie) {
-      const result = await this.json(operation, await this.signed(operation, '/x/player/wbi/v2', { bvid, cid: part.cid }, cookie),
-        host => host === 'api.bilibili.com', true, cookie);
-      const entries = object(object(result.data).subtitle).subtitles;
-      if (!Array.isArray(entries)) throw new ReadError('protocol_error', '播放器字幕响应格式发生变化。');
-      const tracks = entries.map(value => {
-        const entry = object(value);
-        return { language: text(entry.lan), label: text(entry.lan_doc), url: text(entry.subtitle_url) };
-      });
-      if (tracks.length) return tracks;
-    }
+  private async subtitleTracks(operation: ReadOperation, bvid: string, aid: number, part: Part): Promise<SubtitleTrack[]> {
     const nativeUrl = await this.signed(operation, '/x/v2/subtitle/web/view', {
       oid: part.cid, pid: aid, context_ext: JSON.stringify({ video_type: 1 }),
       type: 1, cur_production_type: 0, preferred_language: 'ai-zh', playlist_switch: 0,
-    }, cookie);
-    const response = await operation.get(nativeUrl, { allowHost: host => host === 'api.bilibili.com', biliCookie: cookie,
+    });
+    const response = await operation.get(nativeUrl, { allowHost: host => host === 'api.bilibili.com',
       headers: { referer: `https://www.bilibili.com/video/${bvid}/?p=${part.page}` } });
     if (response.status !== 200) throw new ReadError('access_denied', `B站字幕请求失败（HTTP ${response.status}）。`);
     if (response.body.toString('utf8').trimStart().startsWith('{')) {
@@ -208,7 +177,6 @@ export class BiliClient {
       try { result = object(JSON.parse(response.body.toString('utf8'))); }
       catch { throw new ReadError('protocol_error', '平台返回了无法解析的字幕响应。'); }
       if (result.code !== undefined && !Number.isInteger(result.code)) throw new ReadError('protocol_error', '字幕响应代码格式发生变化。');
-      if (result.code === -101 && cookie) throw new SessionExpired();
       if (result.code !== undefined && result.code !== 0) throw new ReadError('access_denied', `B站未允许本次字幕读取（代码 ${result.code}）。`);
       throw new ReadError('protocol_error', '原生字幕响应格式发生变化。');
     }
@@ -217,12 +185,8 @@ export class BiliClient {
 
   async search(query: string, page: number, operation: ReadOperation): Promise<Material> {
     if (typeof query !== 'string' || !query.trim() || [...query].length > 240) throw new ReadError('invalid_input', '搜索词需为1–240字符。');
-    return this.withLogin(operation, cookie => this.searchVideos(query, page, operation, cookie));
-  }
-
-  private async searchVideos(query: string, page: number, operation: ReadOperation, cookie?: string): Promise<Material> {
-    const url = await this.signed(operation, '/x/web-interface/wbi/search/type', { keyword: query, search_type: 'video', page, page_size: 20 }, cookie);
-    const result = await this.json(operation, url, host => host === 'api.bilibili.com', true, cookie);
+    const url = await this.signed(operation, '/x/web-interface/wbi/search/type', { keyword: query, search_type: 'video', page, page_size: 20 });
+    const result = await this.json(operation, url, host => host === 'api.bilibili.com');
     const data = object(result.data);
     if (!Array.isArray(data.result)) throw new ReadError('protocol_error', '视频搜索响应格式发生变化。');
     const dom = new JSDOM('<!doctype html><body></body>');

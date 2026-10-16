@@ -18,7 +18,6 @@
     "kind": "world",
     "api": 6,
     "displayName": "网上冲浪",
-    "webUiClient": "dist/webui.js",
     "tags": [
       "internet",
       "browser",
@@ -41,7 +40,6 @@
   "scripts": {
     "test": "node scripts/build-engine.mjs && vitest run",
     "build:engine": "node scripts/build-engine.mjs",
-    "build:webui": "node scripts/build-engine.mjs",
     "typecheck": "tsc --noEmit",
     "install:browser": "node scripts/install-browser.mjs"
   },
@@ -49,8 +47,7 @@
     "@mozilla/readability": "0.6.0",
     "ipaddr.js": "2.5.0",
     "jsdom": "27.4.0",
-    "playwright": "1.63.0",
-    "qrcode-generator": "2.0.4"
+    "playwright": "1.63.0"
   },
   "devDependencies": {
     "@types/jsdom": "^27.0.0",

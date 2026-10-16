@@ -25,8 +25,6 @@ export class PlatformFixture implements ReadOperation {
   requests = 0;
   offline = false;
   subtitleTail = '末尾结论。';
-  acceptedSession?: string;
-  playerEmpty = false;
   emptySubtitleBodies = 0;
   subtitleRequests = 0;
   nativeStatus = 200;
@@ -36,16 +34,13 @@ export class PlatformFixture implements ReadOperation {
     this.requests++;
     if (this.offline) throw new Error('fixture network offline');
     const target = new URL(url); let body: unknown;
-    const loggedIn = !!this.acceptedSession && requestHeaders(target, options).cookie === 'SESSDATA=' + this.acceptedSession;
+    const headers = requestHeaders(options);
+    if (headers.cookie || headers.authorization) throw new Error('anonymous request carried credentials');
     if (target.hostname === 'b23.tv') return {url:'https://www.bilibili.com/video/BV1aa411a7aa/?p=2',status:200,headers:{},body:Buffer.alloc(0)};
-    if (target.pathname.endsWith('/nav')) body = { code: loggedIn ? 0 : -101, data: { isLogin: loggedIn, uname: '测试用户',
+    if (target.pathname.endsWith('/nav')) body = { code: -101, data: { isLogin: false,
       wbi_img: { img_url: 'https://example.org/'+'a'.repeat(32)+'.png', sub_url: 'https://example.org/'+'b'.repeat(32)+'.png' } } };
     else if (target.pathname.endsWith('/wbi/view')) body = { code: 0, data: { bvid: 'BV1aa411a7aa', aid: 100, title: '竞赛介绍',
       owner: { name: '作者' }, pages: [{ cid: 200, page: 1, part: '介绍', duration: 90 }, { cid: 201, page: 2, part: '附录', duration: 30 }] } };
-    else if (target.pathname.endsWith('/player/wbi/v2')) body = { code: 0, data: { subtitle: {
-      need_login_subtitle: !loggedIn,
-      subtitles: loggedIn && !this.playerEmpty ? [{ lan: 'ai-zh', lan_doc: '中文', subtitle_url: 'https://aisubtitle.hdslb.com/200.json' }] : [],
-    } } };
     else if (target.pathname.endsWith('/subtitle/web/view')) {
       this.nativeRequests++;
       this.nativeAtMs.push(Date.now());
@@ -56,7 +51,6 @@ export class PlatformFixture implements ReadOperation {
         return { url, status:this.nativeStatus, headers:{}, body:field(1,this.nativeRequests<=this.emptyResponses ? Buffer.alloc(0) : field(3,track)) };
       }
     } else if (target.hostname === 'aisubtitle.hdslb.com') {
-      if (options.biliCookie) throw new Error('credentials reached the subtitle CDN');
       body = {body: ++this.subtitleRequests <= this.emptySubtitleBodies ? [] : [
       {from:0,to:1,content:target.pathname==='/200.json'?'开头。':'附录说明。'}, {from:31,to:32,content:this.subtitleTail},
     ]}; }
