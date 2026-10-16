@@ -1,18 +1,10 @@
 {
   "name": "cortico-world-surfing",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "读取公开网页正文和 B站字幕，支持视频搜索、分段续读和可调返回量。",
   "author": "DTMosken",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/DTMosken/cortico-world-surfing.git"
-  },
-  "homepage": "https://github.com/DTMosken/cortico-world-surfing#readme",
-  "bugs": {
-    "url": "https://github.com/DTMosken/cortico-world-surfing/issues"
-  },
   "keywords": [
     "cortico-world",
     "cortico",
@@ -28,21 +20,29 @@
   "main": "./src/definition.ts",
   "cortico": {
     "kind": "world",
-    "api": 5,
+    "api": 6,
     "displayName": "网上冲浪",
-    "consoleClient": "dist/console.js"
+    "tags": [
+      "internet",
+      "browser",
+      "video"
+    ],
+    "describe": "describe.json"
   },
   "files": [
     "src",
     "dist",
     "scripts/install-browser.mjs",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "describe.json",
+    "CHANGELOG.md",
+    "AGENTS.md",
+    "CLAUDE.md"
   ],
   "scripts": {
     "test": "node scripts/build-engine.mjs && vitest run",
     "build:engine": "node scripts/build-engine.mjs",
-    "build:console": "node scripts/build-engine.mjs",
     "typecheck": "tsc --noEmit",
     "install:browser": "node scripts/install-browser.mjs"
   },
@@ -50,15 +50,22 @@
     "@mozilla/readability": "0.6.0",
     "ipaddr.js": "2.5.0",
     "jsdom": "27.4.0",
-    "playwright": "1.63.0",
-    "qrcode-generator": "2.0.4"
+    "playwright": "1.63.0"
   },
   "devDependencies": {
     "@types/jsdom": "^27.0.0",
     "@types/node": "^22.10.0",
-    "cortico": "^0.1.7",
+    "cortico": "^0.2.1",
     "esbuild": "0.28.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DTMosken/cortico-world-surfing.git"
+  },
+  "homepage": "https://github.com/DTMosken/cortico-world-surfing#readme",
+  "bugs": {
+    "url": "https://github.com/DTMosken/cortico-world-surfing/issues"
   }
 }

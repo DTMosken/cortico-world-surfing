@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CORTICO_REF: 9ad634a298d40cee6ba8b68162ea9f49dd220bab
+  CORTICO_REF: 514ae61364bb534816e2d3e2eeb3ab7197c1fb34
 
 jobs:
   release:
@@ -109,7 +109,7 @@ jobs:
           import { join } from 'node:path';
           const [pack] = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'npm-pack.json'), 'utf8'));
           const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
-          for (const file of [pkg.main, pkg.cortico.consoleClient, 'dist/page-engine.mjs', 'src/ENV_PROMPT.md', 'scripts/install-browser.mjs', 'README.md', 'LICENSE']) {
+          for (const file of [pkg.main, 'dist/page-engine.mjs', 'src/ENV_PROMPT.md', 'scripts/install-browser.mjs', 'README.md', 'LICENSE', pkg.cortico.describe, 'CHANGELOG.md', 'AGENTS.md', 'CLAUDE.md']) {
             if (!pack.files.some((entry) => entry.path === file.replace(/^\.\//, ''))) {
               throw new Error('Release is missing ' + file);
             }

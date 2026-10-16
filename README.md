@@ -1,7 +1,7 @@
-<!-- Owner: package.json, src/definition.ts, src/world.ts, src/ENV_PROMPT.md, src/network.ts, src/bili-login.ts -->
+<!-- Owner: package.json, src/definition.ts, src/world.ts, src/ENV_PROMPT.md, src/network.ts, src/bili.ts -->
 # 网上冲浪
 
-让 Cortico 阅读网页和B站视频字幕，搜索视频，并根据读到的内容回答问题。发送链接或BV号即可使用，默认匿名读取，B站登录可选。
+让 Cortico 阅读网页和B站视频字幕，搜索视频，并根据读到的内容回答问题。发送链接或BV号即可使用，B站字幕和搜索均匿名读取。
 
 ## 能做什么
 
@@ -13,7 +13,7 @@
 
 ## 安装与配置
 
-需要 Cortico 0.1.7 或更新版本（World 扩展 API 5），以及 Node.js 22.12 以上的22系列或24以上版本。
+需要 Cortico 0.2.1 或更新版本（World 扩展 API 6），以及 Node.js 22.12 以上的22系列或24以上版本。
 
 1. 在 Cortico 扩展管理页输入 `cortico-world-surfing` 安装 npm 包；使用本地源码时选择本项目目录。
 2. 重启 Cortico 进程，启用“网上冲浪”。
@@ -29,23 +29,21 @@
 
 L1 宿主可调用全部阅读工具；读取受单次超时与 `stop()` 取消控制。L2 宿主还通过 `ToolCallContext.signal` 取消单次调用。三个工具均声明 `interruptible`，L3 宿主收到 `interrupt` 事件时会取消正在执行的读取；工具返回回执后继续处理新事件。本 World 不主动投递事件，不使用实时输出。
 
-挂载时须提供 `WorldContext` 的配置、部署路径和密钥读写，用 `envPromptVars()` 填充 `ENV_PROMPT.md` 并将环境描述加入 system 前缀。控制台不计入等级；没有控制台时由宿主提供配置，匿名读取可用，本包的扫码登录面板不可用。
+挂载时须提供 `WorldContext` 的配置和部署路径，用 `envPromptVars()` 填充 `ENV_PROMPT.md` 并将环境描述加入 system 前缀。控制台不计入等级；没有控制台时由宿主提供配置。
 
 ## 使用示例
 
-- “看看BV1aa411a7aa，讲了什么。”
+- “看看BV12345abc，讲了什么。”
 - “去B站搜一下‘破防’，读完解释这个梗。”
 - “打开这个网页链接，看看文中的条件。”
 - “继续读刚才那篇文章。”
 - “打开文章里的安装指南，看看配置要求。”
 
-Cortico 0.1.8 起，QQ 分享卡片中的来源、标题和链接会进入消息正文。需要阅读时可直接使用卡片链接：B站视频支持 b23.tv 短链，无需另补 BV号；其他公开网页链接按网页阅读。
+QQ 分享卡片中的来源、标题和链接会进入消息正文。需要阅读时可直接使用卡片链接：B站视频支持 b23.tv 短链，无需另补 BV号；其他公开网页链接按网页阅读。
 
 明确要求查找视频并提供关键词时，会搜索候选；仅模糊提到某个视频时不会自动搜索。
 
-## B站登录与重试
-
-可在“网上冲浪”的“B站登录”面板用 B站 App 扫码并确认。凭证保存在本机部署中；退出登录会清除凭证，登录失效时提示重新登录并尝试匿名读取。
+## 字幕重试
 
 本次未取得字幕时，默认额外重试2次，分别等待1秒、2秒。在配置页可调整重试次数和首次等待时间，后续等待时间逐次翻倍；次数设为0关闭重试。所有尝试共用单次读取超时。
 
@@ -75,3 +73,9 @@ Cortico 0.1.8 起，QQ 分享卡片中的来源、标题和链接会进入消息
 ## 许可
 
 MIT License，见 [LICENSE](LICENSE)。
+
+## Cortico 0.2.1
+
+已移除 B站登录。旧部署可从部署目录的 `.env` 中删除 `CORTICO_SURFING_BILI_SESSION`；本版本不再读取或写入该配置。
+
+发布前从 Cortico 仓库运行 `pnpm describe:extension <本包目录>` 和 `pnpm check:extension <本包目录>`。工具与默认提示词通过 `describe.json` 提供给扩展市场；发布规则见 [AGENTS.md](AGENTS.md)，更新说明见 [CHANGELOG.md](CHANGELOG.md)。

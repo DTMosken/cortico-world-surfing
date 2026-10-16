@@ -1,8 +1,6 @@
 import { expect, test } from 'vitest';
 import { BiliClient, biliKey, parseSubtitleTracks, resolveSubtitleUrl } from '../src/bili.ts';
-import { BiliLogin } from '../src/bili-login.ts';
 import { SURFING_DEFAULTS } from '../src/config.ts';
-import type { GetOptions, PublicResponse } from '../src/network.ts';
 import { PlatformFixture } from './platform-fixture.ts';
 
 test('未登录 nav 仍能取得原生字幕并保留后文、分P与来源', async () => {
@@ -60,49 +58,6 @@ test('重试等待响应同一次读取的超时，不发起后续请求', async
   Object.defineProperty(fixture,'signal',{value:AbortSignal.timeout(40)});
   await expect(new BiliClient().read({bvid:'BV1aa411a7aa'},fixture,30)).rejects.toMatchObject({name:'AbortError'});
   expect(fixture.nativeRequests).toBe(1);
-});
-
-test('登录后取得播放器字幕，凭证不传给字幕 CDN', async () => {
-  const sessdata = 'fixture-session';
-  const fixture = new PlatformFixture(); fixture.acceptedSession = sessdata; fixture.emptyResponses = Infinity;
-  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:sessdata}),storeSecret:()=>{throw new Error('unexpected write');}});
-  const result = await new BiliClient(login).read({bvid:'BV1aa411a7aa'},fixture,30);
-  expect(result.units.some(unit=>unit.kind==='text'&&unit.text.includes('开头。'))).toBe(true);
-  expect(fixture.nativeRequests).toBe(0);
-  expect(login.state()).toMatchObject({kind:'logged_in',username:'测试用户'});
-});
-
-test('登录播放器轨道为空时，仍可通过原生接口取得字幕', async () => {
-  const sessdata = 'fixture-session';
-  const fixture = new PlatformFixture(); fixture.acceptedSession = sessdata; fixture.playerEmpty = true;
-  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:sessdata}),storeSecret:()=>{throw new Error('unexpected write');}});
-  const result = await new BiliClient(login).read({bvid:'BV1aa411a7aa'},fixture,30);
-  expect(result.units.some(unit=>unit.kind==='text'&&unit.text.includes('开头。'))).toBe(true);
-  expect(fixture.nativeRequests).toBe(1);
-});
-
-test('登录凭证失效时以匿名模式取得原生字幕', async () => {
-  const fixture = new PlatformFixture(); fixture.acceptedSession = 'current-session';
-  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:'expired-session'}),storeSecret:()=>{throw new Error('unexpected write');}});
-  const result = await new BiliClient(login).read({bvid:'BV1aa411a7aa'},fixture,30);
-  expect(result.units.some(unit=>unit.kind==='text'&&unit.text.includes('开头。'))).toBe(true);
-  expect(login.state().kind).toBe('expired');
-});
-
-test('读取途中平台明确返回登录失效时，使用同一次操作匿名重读', async () => {
-  class ExpiringFixture extends PlatformFixture {
-    override async get(url: string, options: GetOptions = {}): Promise<PublicResponse> {
-      if (new URL(url).pathname.endsWith('/wbi/view') && options.biliCookie)
-        return {url,status:200,headers:{},body:Buffer.from('{"code":-101}')};
-      return super.get(url, options);
-    }
-  }
-  const sessdata = 'fixture-session';
-  const fixture = new ExpiringFixture(); fixture.acceptedSession = sessdata;
-  const login = new BiliLogin({secret:()=>JSON.stringify({SESSDATA:sessdata}),storeSecret:()=>{throw new Error('unexpected write');}});
-  const result = await new BiliClient(login).read({bvid:'BV1aa411a7aa'},fixture,30);
-  expect(result.units.some(unit=>unit.kind==='text'&&unit.text.includes('开头。'))).toBe(true);
-  expect(login.state().kind).toBe('expired');
 });
 
 test.each([{bvid:'BV1aa411a7aa',cid:201},{aid:100,cid:201},{url:'https://www.bilibili.com/video/BV1aa411a7aa/?p=2'},{url:'https://b23.tv/short'}])('指定分P与短链均使用所选正文 %j', async input => {

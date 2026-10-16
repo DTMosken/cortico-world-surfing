@@ -23,10 +23,9 @@ export function asReadError(error: unknown): ReadError {
 export interface NetworkLimits { requestTimeoutMs: number; maxDownloadBytes: number }
 export interface Address { address: string; family: number }
 export type Resolver = (hostname: string) => Promise<Address[]>;
-export interface PublicResponse { url: string; status: number; headers: Record<string, string>; body: Buffer; biliCookies?: string[] }
+export interface PublicResponse { url: string; status: number; headers: Record<string, string>; body: Buffer }
 export interface GetOptions {
-  headers?: Record<string, string>; allowHost?: (hostname: string) => boolean; followRedirects?: boolean;
-  biliCookie?: string; receiveBiliCookies?: boolean;
+  headers?: Record<string, string>; allowHost?: (hostname: string) => boolean;
 }
 export interface ReadOperation {
   readonly signal: AbortSignal;
@@ -71,7 +70,7 @@ function responseHeaders(headers: IncomingHttpHeaders): Record<string, string> {
     .map(([key, value]) => [key, Array.isArray(value) ? value.join(', ') : value]));
 }
 
-export function requestHeaders(url: URL, options: GetOptions): Record<string, string> {
+export function requestHeaders(options: GetOptions): Record<string, string> {
   const headers: Record<string, string> = {
     'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
     'accept-encoding': 'gzip, deflate, br', accept: '*/*', 'accept-language': '*',
@@ -79,8 +78,6 @@ export function requestHeaders(url: URL, options: GetOptions): Record<string, st
   for (const [key, value] of Object.entries(options.headers ?? {})) {
     if (['accept', 'accept-language', 'referer', 'user-agent'].includes(key.toLowerCase())) headers[key.toLowerCase()] = value;
   }
-  if (url.protocol === 'https:' && url.hostname === 'api.bilibili.com' && !url.port && options.biliCookie)
-    headers.cookie = options.biliCookie;
   return headers;
 }
 
@@ -114,7 +111,7 @@ class Operation implements ReadOperation {
           throw new ReadError('address_denied', '域名未解析到允许的公网地址。');
         const selected = addresses.find(a => a.family === 4) ?? addresses[0];
         const response = await this.request(url, selected, options);
-        if (![301, 302, 303, 307, 308].includes(response.status) || options.followRedirects === false) return response;
+        if (![301, 302, 303, 307, 308].includes(response.status)) return response;
         if (!response.headers.location) throw new ReadError('protocol_error', '重定向缺少目标地址。');
         if (hops === 5) throw new ReadError('access_denied', '重定向次数超出限制。');
         url = validatePublicUrl(new URL(response.headers.location, url).href);
@@ -124,7 +121,7 @@ class Operation implements ReadOperation {
   }
 
   private request(url: URL, selected: Address, options: GetOptions): Promise<PublicResponse> {
-    const headers = requestHeaders(url, options);
+    const headers = requestHeaders(options);
     return new Promise((resolve, reject) => {
       const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
         method: 'GET', headers, agent: false, signal: this.signal, family: selected.family,
@@ -132,9 +129,6 @@ class Operation implements ReadOperation {
       }, response => {
         const status = response.statusCode ?? 0;
         const normalized = responseHeaders(response.headers);
-        const biliCookies = options.receiveBiliCookies && url.protocol === 'https:' && !url.port
-          && url.hostname === 'passport.bilibili.com' && url.pathname === '/x/passport-login/web/qrcode/poll'
-          ? response.headers['set-cookie'] : undefined;
         if ([301, 302, 303, 307, 308].includes(status)) {
           response.destroy();
           resolve({ url: url.href, status, headers: normalized, body: Buffer.alloc(0) });
@@ -163,7 +157,7 @@ class Operation implements ReadOperation {
             delete normalized['content-encoding'];
             delete normalized['content-length'];
             delete normalized['transfer-encoding'];
-            resolve({ url: url.href, status, headers: normalized, body: Buffer.concat(chunks), ...(biliCookies ? { biliCookies } : {}) });
+            resolve({ url: url.href, status, headers: normalized, body: Buffer.concat(chunks) });
           } catch (error) { request.destroy(); response.destroy(); decoder?.destroy(); reject(error); }
         })();
       });

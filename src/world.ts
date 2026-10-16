@@ -1,11 +1,10 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ToolDef, ToolSpec, ToolOutcome, ToolCallContext, World, WorldConsoleDecl, WorldHost } from 'cortico/core/types.ts';
+import type { ToolDef, ToolSpec, ToolOutcome, ToolCallContext, World, WorldWebUiDecl, WorldHost } from 'cortico/core/types.ts';
 import type { WorldContext } from 'cortico/world.ts';
 import { SURFING_DEFAULTS, SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP, applyBiliDefaults, validateConfig, type SurfingConfigSection } from './config.ts';
 import { BiliClient, biliKey, type BiliInput } from './bili.ts';
-import { BiliLogin } from './bili-login.ts';
 import { ReadError, asReadError, PublicClient, waitWithSignal, type ReadOperation } from './network.ts';
 import { PageReader, pageKey } from './page-reader.ts';
 import { SnapshotCache, estimateTokens, type Material } from './snapshots.ts';
@@ -27,7 +26,7 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
     } },
   },
   {
-    name: 'surfing_read_bili', tags: ['read'], description: '读取 B站视频人工或 AI 字幕；可选登录由面板管理。提供 BV 或视频链接即可；可指定 cid 或 URL 中的 p 选择分P。回执为字幕原文片段，未取得字幕不代表无音频。',
+    name: 'surfing_read_bili', tags: ['read'], description: '匿名读取 B站视频人工或 AI 字幕。提供 BV 或视频链接即可；可指定 cid 或 URL 中的 p 选择分P。回执为字幕原文片段，未取得字幕不代表无音频。',
     parameters: { type: 'object', additionalProperties: false, anyOf: [{ required: ['bvid'] }, { required: ['aid'] }, { required: ['url'] }], properties: {
       bvid: { type: 'string', pattern: '^BV[0-9A-Za-z]{10}$', description: '视频 BV号。' },
       aid: { type: 'integer', minimum: 1, description: '稿件 aid；不知道时只给 BV 或 URL。' },
@@ -46,8 +45,7 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
 export class SurfingWorld implements World {
   readonly id = 'surfing';
   private readonly cache = new SnapshotCache();
-  private readonly login: BiliLogin;
-  private readonly bili: BiliClient;
+  private readonly bili = new BiliClient();
   private readonly pages = new PageReader();
   private readonly pendingSearches = new Map<string,{promise:Promise<string>;signal:AbortSignal}>();
   private lifecycle = new AbortController();
@@ -56,8 +54,6 @@ export class SurfingWorld implements World {
 
   constructor(private readonly ctx: WorldContext<SurfingConfigSection>, private readonly client = new PublicClient()) {
     applyBiliDefaults(ctx.cfg);
-    this.login = new BiliLogin(ctx);
-    this.bili = new BiliClient(this.login);
   }
 
   envPromptVars(): Record<string, string> {
@@ -153,7 +149,7 @@ export class SurfingWorld implements World {
     }
   }
 
-  console(): WorldConsoleDecl {
+  webUi(): WorldWebUiDecl {
     const override = join(this.ctx.botDir, 'prompts', 'worlds', 'surfing', 'ENV_PROMPT.md');
     return {
       label: '网上冲浪',
@@ -165,22 +161,6 @@ export class SurfingWorld implements World {
         { label: '源材料', value: this.last ? (this.last.sourceTruncated ? '触及保留上限' : '未触及保留上限') : '尚未读取' },
         { label: '文本缓存', value: Math.ceil(this.cache.sizeBytes / 1024) + ' KiB' },
       ],
-      panels: [{ id: 'login', title: 'B站登录' }],
-      invoke: async (panel, method) => {
-        if (panel !== 'login' || !['state', 'start', 'poll', 'logout'].includes(method)) throw new Error('未知的登录操作。');
-        if (method === 'logout') return this.login.logout();
-        if (this.stopped) {
-          if (method === 'state') return this.login.state();
-          throw new Error('请先启用网上冲浪，再扫码登录。');
-        }
-        const operation = this.client.operation(this.ctx.cfg.network, this.lifecycle.signal);
-        try {
-          if (method === 'start') return await this.login.start(operation);
-          if (method === 'poll') return await this.login.poll(operation);
-          if (this.login.state().kind === 'unverified') await this.login.cookie(operation);
-          return this.login.state();
-        } finally { operation.close(); }
-      },
       config: [SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP],
       promptDocs: [{ key: 'worlds.surfing.envPrompt', title: '网上冲浪环境提示词', description: '网页、视频与学习工具的使用指导。',
         path: existsSync(override) ? override : ENV_PROMPT_FILE, deploymentPath: override, role: 'envPrompt',
@@ -193,7 +173,7 @@ export class SurfingWorld implements World {
 
   async start(_host: WorldHost): Promise<void> { this.lifecycle = new AbortController(); this.stopped = false; }
   async stop(): Promise<void> {
-    this.stopped = true; this.lifecycle.abort(); this.login.cancel(); this.cache.clear(); this.pendingSearches.clear();
+    this.stopped = true; this.lifecycle.abort(); this.cache.clear(); this.pendingSearches.clear();
     await this.pages.stop();
   }
 }

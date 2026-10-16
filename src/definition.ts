@@ -1,12 +1,13 @@
-import type { WorldDefinition } from 'cortico/world.ts';
+import { describeTools, type WorldDefinition } from 'cortico/world.ts';
 import { SURFING_DEFAULTS, validateConfig, type SurfingConfigSection } from './config.ts';
-import { SurfingWorld } from './world.ts';
+import { SURFING_TOOL_DECLS, SurfingWorld } from './world.ts';
 
 export const SURFING: WorldDefinition<SurfingConfigSection> = {
   id: 'surfing', label: '网上冲浪',
   defaults: () => structuredClone(SURFING_DEFAULTS),
   preflight: ctx => validateConfig(ctx.cfg),
   create: ctx => new SurfingWorld(ctx),
+  describe: { tools: describeTools(SURFING_TOOL_DECLS, {}), events: [] },
 };
 
 export default SURFING;

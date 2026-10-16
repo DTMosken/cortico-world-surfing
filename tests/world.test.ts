@@ -36,20 +36,21 @@ function result(outcome: Awaited<ReturnType<ReturnType<SurfingWorld['tools']>[nu
 
 function context(): WorldContext<SurfingConfigSection> {
   return { id: 'surfing', cfg: structuredClone(SURFING_DEFAULTS), timezone: 'UTC', botName: 'test',
-    botDir: '.', packageDir: '.', dataDir: '.', repoRoot: '.', secret() { return ''; },
+    botDir: '.', packageDir: '.', dataDir: '.', repoRoot: '.', secret() { throw new Error('anonymous world must not read credentials'); },
     storeSecret() { throw new Error('credentials must not be stored'); }, persist() {}, async restart() {} };
 }
 
-test('独立 World 在没有 learn 或凭证时提供工具、登录和可调面板', () => {
+test('独立 World 无需凭证即可提供工具和可调配置', () => {
   const world = new SurfingWorld(context());
   expect(world.tools().map(x=>x.name)).toEqual(['surfing_read_page','surfing_read_bili','surfing_search_bili']);
-  const groups = world.console().config!;
+  const groups = world.webUi().config!;
   const fields = groups.flatMap(group => Object.keys(group.schema.properties));
   expect(fields).toContain('worlds.surfing.reading.maxResponseEstimatedTokens');
   expect(fields).toContain('worlds.surfing.bili.maxSubtitleRetries');
   expect(fields).toContain('worlds.surfing.bili.subtitleRetryDelayMs');
   expect(fields.some(field => /login|cookie|apiKey|summaryModel/i.test(field))).toBe(false);
-  expect(world.console().panels?.some(panel=>panel.id==='login')).toBe(true);
+  expect(world.webUi().panels).toBeUndefined();
+  expect(world.webUi().invoke).toBeUndefined();
   const first = SURFING.defaults(), second = SURFING.defaults();
   first.reading.maxResponseEstimatedTokens = 1024;
   expect(second.reading.maxResponseEstimatedTokens).toBe(SURFING_DEFAULTS.reading.maxResponseEstimatedTokens);
