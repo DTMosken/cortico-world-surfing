@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-10-21
 
 - Add anonymous video description and comment readers, including hot/latest ordering, pinned comments, thread replies and cursor continuation.
 - Shorten the environment prompt and remove instructions already in tool descriptions.
