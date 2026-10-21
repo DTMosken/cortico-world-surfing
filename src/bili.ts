@@ -9,6 +9,7 @@ const MIXIN_ORDER = [46,47,18,2,53,8,23,32,15,50,10,31,58,3,45,35,27,43,5,49,33,
 const API = 'https://api.bilibili.com';
 const videoHosts = new Set(['bilibili.com', 'www.bilibili.com', 'm.bilibili.com']);
 export interface BiliInput { bvid?: string; aid?: number; cid?: number; url?: string }
+export interface BiliCommentsInput extends BiliInput { sort?: 'hot' | 'time'; root?: string }
 interface WbiImages { img_url: string; sub_url: string }
 interface Part { cid: number; page: number; part: string; duration: number }
 
@@ -40,6 +41,41 @@ export function biliKey(input: BiliInput): string {
   validateBiliInput(input);
   return 'bili:' + JSON.stringify({ bvid: input.bvid, aid: input.aid, cid: input.cid,
     url: input.url === undefined ? undefined : validatePublicUrl(input.url).href });
+}
+
+export function biliCommentsKey(input: BiliCommentsInput): string {
+  if (input.sort !== undefined && !['hot', 'time'].includes(input.sort))
+    throw new ReadError('invalid_input', '评论排序为 hot 或 time。');
+  if (input.root !== undefined && (typeof input.root !== 'string' || !/^[1-9][0-9]{0,19}$/.test(input.root)))
+    throw new ReadError('invalid_input', 'root 需为评论回执中的 rpid 字符串。');
+  if (input.root && input.sort !== undefined)
+    throw new ReadError('invalid_input', '读取楼中楼时不指定 sort。');
+  return 'comments:' + biliKey(input) + ':' + (input.sort ?? 'hot') + ':' + (input.root ?? '');
+}
+
+function count(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0)
+    throw new ReadError('protocol_error', '平台返回的评论计数或分页位置无效。');
+  return value;
+}
+
+function commentText(value: unknown, label: string): string {
+  const comment = object(value);
+  const rpid = comment.rpid_str ?? comment.rpid;
+  if (!(typeof rpid === 'string' && /^[1-9][0-9]{0,19}$/.test(rpid))
+    && !(typeof rpid === 'number' && Number.isSafeInteger(rpid) && rpid > 0))
+    throw new ReadError('protocol_error', '平台返回的评论 ID 无效。');
+  const at = new Date(count(comment.ctime) * 1000);
+  if (!Number.isFinite(at.getTime())) throw new ReadError('protocol_error', '平台返回的评论时间无效。');
+  const author = text(object(comment.member).uname).replace(/\s+/g, ' ');
+  return `${label} rpid: ${rpid}；作者：${author}；赞：${count(comment.like)}；楼中楼：${count(comment.rcount)}；${at.toISOString()}\n`
+    + text(object(comment.content).message) + '\n\n';
+}
+
+function replies(value: unknown): unknown[] {
+  if (value === null) return [];
+  if (!Array.isArray(value)) throw new ReadError('protocol_error', '平台返回的评论列表格式发生变化。');
+  return value;
 }
 
 export function signWbi(params: Record<string, string | number>, images: WbiImages, timestamp = Math.floor(Date.now() / 1000)): string {
@@ -80,8 +116,7 @@ export class BiliClient {
     return API + path + '?' + signWbi(params, this.wbi.images);
   }
 
-  async read(input: BiliInput, operation: ReadOperation, groupSec: number,
-    retry: Pick<SurfingConfigSection['bili'], 'maxSubtitleRetries' | 'subtitleRetryDelayMs'> = SURFING_DEFAULTS.bili): Promise<Material> {
+  private async video(input: BiliInput, operation: ReadOperation) {
     validateBiliInput(input);
     let bvid = input.bvid, aid = input.aid;
     let requestedPage: number | undefined;
@@ -126,6 +161,76 @@ export class BiliClient {
     const selected = input.cid ? parts.find(part => part.cid === input.cid) : parts.find(part => part.page === (requestedPage ?? 1));
     if (!selected) throw new ReadError('not_found', '指定的分P不存在。');
     if (requestedPage && selected.page !== requestedPage) throw new ReadError('invalid_input', 'cid 与 URL 的分P编号不一致。');
+    return { metadata, actualAid, actualBvid, parts, selected };
+  }
+
+  async readInfo(input: BiliInput, operation: ReadOperation): Promise<Material> {
+    const { metadata, actualAid, actualBvid, parts } = await this.video(input, operation);
+    const description = text(metadata.desc);
+    return { kind: 'bili-info', key: 'info:' + biliKey(input),
+      source: `https://www.bilibili.com/video/${actualBvid}/`, title: text(metadata.title),
+      scope: { bvid: actualBvid, aid: actualAid, author: text(object(metadata.owner).name) },
+      units: [{ kind: 'text', text: (description || '该视频简介为空。') + '\n\n' },
+        ...parts.map(part => ({ kind: 'part' as const, value: { page: part.page, cid: part.cid, title: part.part } }))] };
+  }
+
+  async readComments(input: BiliCommentsInput, position: number, operation: ReadOperation): Promise<Material> {
+    const key = biliCommentsKey(input);
+    const { metadata, actualAid, actualBvid } = await this.video(input, operation);
+    const mode = input.sort === 'time' ? 2 : 3;
+    const params = new URLSearchParams({ type: '1', oid: String(actualAid), ps: '20' });
+    if (input.root) { params.set('root', input.root); params.set('pn', String(position)); }
+    else { params.set('next', String(position)); params.set('mode', String(mode)); }
+    const url = input.root ? `${API}/x/v2/reply/reply?${params}`
+      : await this.signed(operation, '/x/v2/reply/wbi/main', Object.fromEntries(params));
+    const result = await this.json(operation, url,
+      host => host === 'api.bilibili.com', false);
+    if (result.code === 12002) throw new ReadError('content_unavailable', '该视频评论区已关闭。');
+    if (result.code === 12006 || result.code === 12022) throw new ReadError('not_found', '指定评论不存在或已删除。');
+    if (result.code !== 0) throw new ReadError('access_denied', `B站未允许本次评论读取（代码 ${result.code}）。`);
+    const data = object(result.data);
+    const comments = replies(data.replies);
+    let nextBatch: number | undefined;
+    if (input.root) {
+      const page = object(data.page);
+      if (count(page.num) !== position || count(page.size) === 0)
+        throw new ReadError('protocol_error', '平台未返回所请求的评论页。');
+      if (position * count(page.size) < count(page.count)) nextBatch = position + 1;
+    } else {
+      const cursor = object(data.cursor);
+      if (typeof cursor.is_end !== 'boolean') throw new ReadError('protocol_error', '平台没有返回评论结束标记。');
+      if (cursor.mode !== mode) throw new ReadError('content_unavailable', '平台未返回所请求的评论排序。');
+      if (!cursor.is_end) {
+        nextBatch = count(cursor.next);
+        if (nextBatch === position) throw new ReadError('protocol_error', '平台返回的评论位置没有前进。');
+      }
+    }
+    const units: Unit[] = [];
+    const seen = new Set<string>();
+    const append = (value: unknown, label: string, preview: boolean) => {
+      const comment = object(value);
+      const rendered = commentText(comment, label);
+      const id = String(comment.rpid_str ?? comment.rpid);
+      if (seen.has(id)) return;
+      seen.add(id);
+      units.push({ kind: 'text', text: rendered });
+      if (preview) for (const reply of replies(comment.replies ?? null)) append(reply, '楼中楼预览', false);
+    };
+    if (input.root && position === 1) append(data.root, '根评论', false);
+    if (!input.root && position === 0) {
+      for (const pinned of replies(data.top_replies ?? null)) append(pinned, '置顶评论', true);
+      if (data.top) for (const pinned of Object.values(object(data.top))) if (pinned) append(pinned, '置顶评论', true);
+    }
+    for (const comment of comments) append(comment, input.root ? '楼中楼回复' : '评论', !input.root);
+    return { kind: 'bili-comments', key, source: `https://www.bilibili.com/video/${actualBvid}/`,
+      title: text(metadata.title), scope: { bvid: actualBvid, aid: actualAid,
+        sort: input.root ? 'thread' : (input.sort ?? 'hot'), ...(input.root ? { root: input.root, page: position } : {}) },
+      units, nextBatch };
+  }
+
+  async read(input: BiliInput, operation: ReadOperation, groupSec: number,
+    retry: Pick<SurfingConfigSection['bili'], 'maxSubtitleRetries' | 'subtitleRetryDelayMs'> = SURFING_DEFAULTS.bili): Promise<Material> {
+    const { metadata, actualAid, actualBvid, parts, selected } = await this.video(input, operation);
     let track: SubtitleTrack | undefined;
     let segments: Array<{ from: number; to: number; content: string }> = [];
     for (let attempt = 0; attempt <= retry.maxSubtitleRetries; attempt++) {
@@ -202,7 +307,7 @@ export class BiliClient {
       const totalPages = Number(data.numPages ?? data.num_pages ?? 1);
       return { kind: 'search', key: 'search:' + query, source: 'https://search.bilibili.com/all?keyword=' + encodeURIComponent(query),
         title: 'B站视频搜索', scope: { kind: 'video-search', query, page }, units,
-        nextSearchPage: units.length && Number.isSafeInteger(totalPages) && page < totalPages ? page + 1 : undefined };
+        nextBatch: units.length && Number.isSafeInteger(totalPages) && page < totalPages ? page + 1 : undefined };
     } finally { dom.window.close(); }
   }
 }

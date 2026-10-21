@@ -1,8 +1,8 @@
 {
   "name": "cortico-world-surfing",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
-  "description": "读取公开网页正文和 B站字幕，支持视频搜索、分段续读和可调返回量。",
+  "description": "读取公开网页正文和 B站视频简介、字幕、评论，支持视频搜索、分段续读和可调返回量。",
   "author": "DTMosken",
   "license": "MIT",
   "keywords": [

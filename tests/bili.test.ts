@@ -83,10 +83,10 @@ test('协议变化与匿名拒绝采用不同状态', async () => {
 test('搜索返回可交给读取工具的身份，并解码标题', async () => {
   const fixture = new PlatformFixture(); const client = new BiliClient();
   const first = await client.search('竞赛',1,fixture);
-  expect(first.nextSearchPage).toBe(2);
+  expect(first.nextBatch).toBe(2);
   expect(first.units[0]).toMatchObject({kind:'result',value:{bvid:'BV1aa411a7aa',title:'第1页 比赛 & 说明'}});
   const second = await client.search('竞赛',2,fixture);
-  expect(second.nextSearchPage).toBeUndefined();
+  expect(second.nextBatch).toBeUndefined();
   expect(()=>biliKey({bvid:'BV1aa411a7aa'})).not.toThrow();
 });
 
@@ -109,4 +109,72 @@ test('字幕正文仅接受 HTTPS 的字幕 CDN，异常地址保留为协议错
 test('存在轨道但缺正文地址时报告协议错误，不能误报空轨道', () => {
   expect(()=>parseSubtitleTracks(Uint8Array.from([10,9,26,7,26,5,97,105,45,122,104])))
     .toThrowError(expect.objectContaining({kind:'protocol_error'}));
+});
+
+const video = { bvid: 'BV1aa411a7aa' };
+const body = (material: Awaited<ReturnType<BiliClient['readInfo']>>) => material.units
+  .filter(unit => unit.kind === 'text').map(unit => unit.text).join('');
+
+test('简介保留原始换行和分P目录，无字幕也可读取', async () => {
+  const fixture = new PlatformFixture(); fixture.emptyResponses = Infinity;
+  const material = await new BiliClient().readInfo({ url: 'https://b23.tv/short' }, fixture);
+  expect(body(material)).toContain(fixture.description);
+  expect(material.scope).toMatchObject({ bvid: video.bvid, aid: 100, author: '作者' });
+  expect(material.units.filter(unit => unit.kind === 'part')).toHaveLength(2);
+  expect(fixture.nativeRequests).toBe(0);
+});
+
+test('空简介明确说明为空', async () => {
+  const fixture = new PlatformFixture(); fixture.description = '';
+  expect(body(await new BiliClient().readInfo(video, fixture))).toContain('简介为空');
+});
+
+test('评论保留置顶、原文、楼中楼预览和精确评论ID，续页使用平台位置', async () => {
+  const fixture = new PlatformFixture(); const client = new BiliClient();
+  const first = await client.readComments(video, 0, fixture);
+  expect(body(first)).toContain('9007199254740993');
+  expect(body(first).match(/置顶原文/g)).toHaveLength(1);
+  expect(body(first)).toContain('评论原文。');
+  expect(body(first)).toContain('楼中楼预览。');
+  expect(first.nextBatch).toBe(7);
+  const second = await client.readComments(video, first.nextBatch!, fixture);
+  expect(body(second)).toContain('后续评论。');
+  expect(second.nextBatch).toBeUndefined();
+  expect(fixture.commentRequests.map(request => request.position)).toEqual([0, 7]);
+});
+
+test('最新评论与楼中楼使用各自的排序和分页参数', async () => {
+  const fixture = new PlatformFixture(); const client = new BiliClient();
+  await client.readComments({ ...video, sort: 'time' }, 0, fixture);
+  const thread = { ...video, root: '9007199254740993' };
+  const first = await client.readComments(thread, 1, fixture);
+  expect(body(first)).toContain('置顶原文。');
+  expect(body(first)).toContain('楼中楼第1页。');
+  expect(first.nextBatch).toBe(2);
+  const second = await client.readComments(thread, 2, fixture);
+  expect(body(second)).not.toContain('置顶原文。');
+  expect(second.nextBatch).toBeUndefined();
+  expect(fixture.commentRequests).toEqual([
+    { position: 0, sort: '2', root: null },
+    { position: 1, sort: 'thread', root: thread.root },
+    { position: 2, sort: 'thread', root: thread.root },
+  ]);
+});
+
+test.each([
+  [{ code: 12002 }, 'content_unavailable'],
+  [{ code: -101 }, 'access_denied'],
+  [{ code: 12006 }, 'not_found'],
+  [{ code: 0, data: {} }, 'protocol_error'],
+  [{ code: 0, data: { cursor: { next: 0, is_end: false, mode: 3 }, replies: [] } }, 'protocol_error'],
+])('评论关闭、访问限制及协议变化不伪装成空评论 %j', async (response, kind) => {
+  const fixture = new PlatformFixture(); fixture.commentsJson = response;
+  await expect(new BiliClient().readComments(video, 0, fixture)).rejects.toMatchObject({ kind });
+});
+
+test('正常空结果不生成续读位置', async () => {
+  const fixture = new PlatformFixture();
+  fixture.commentsJson = { code: 0, data: { cursor: { next: 0, is_end: true, mode: 3 }, replies: null } };
+  const result = await new BiliClient().readComments(video, 0, fixture);
+  expect(result.units).toEqual([]); expect(result.nextBatch).toBeUndefined();
 });

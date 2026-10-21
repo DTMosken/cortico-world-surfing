@@ -104,13 +104,13 @@ test('容量不足淘汰最久未读的快照', () => {
 test('远端搜索页由游标指向，重读使用同一份已取得的下一页', () => {
   const cfg = structuredClone(SURFING_DEFAULTS);
   const cache = new SnapshotCache();
-  const first = cache.put({...material([{kind:'result',value:{title:'甲',url:'https://example.org/a'}}],'search:词'),kind:'search',nextSearchPage:2},cfg);
+  const first = cache.put({...material([{kind:'result',value:{title:'甲',url:'https://example.org/a'}}],'search:词'),kind:'search',nextBatch:2},cfg);
   const result = cache.read(first,'search:词',cfg);
   expect(result.hasMore).toBe(true);
-  expect(cache.nextSearch(result.nextCursor!,'search:词',cfg)).toEqual({page:2,cursor:undefined});
+  expect(cache.nextBatch(result.nextCursor!,'search:词',cfg)).toEqual({position:2,cursor:undefined});
   const second = cache.put({...material([{kind:'result',value:{title:'乙',url:'https://example.org/b'}}],'search:词'),kind:'search'},cfg);
-  cache.rememberSearchNext(result.nextCursor!,second);
-  expect(cache.nextSearch(result.nextCursor!,'search:词',cfg)?.cursor).toBe(second);
+  cache.rememberNextBatch(result.nextCursor!,second);
+  expect(cache.nextBatch(result.nextCursor!,'search:词',cfg)?.cursor).toBe(second);
 });
 
 test.each([1024,2048,4096,32768])('预算 %i 包含长标题和混合 Unicode', cap => {
