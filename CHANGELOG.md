@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Shorten the environment prompt and remove instructions already in tool descriptions.
+
 ## 0.2.0 - 2026-10-16
 
 - Remove Bilibili QR login, saved-session handling and the login panel. Subtitle reading and search use anonymous requests; deployments can remove `CORTICO_SURFING_BILI_SESSION` from `.env`.
