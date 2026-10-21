@@ -9,16 +9,16 @@ export interface LinkSpan { id: string; from: number; to: number }
 export type Unit = { kind: 'text'; text: string; links?: LinkSpan[]; startSec?: number; endSec?: number }
   | { kind: 'part' | 'result'; value: RecordValue };
 export interface Material {
-  kind: 'page' | 'bili' | 'search'; key: string; source: string; title: string;
+  kind: 'page' | 'bili' | 'search' | 'bili-info' | 'bili-comments'; key: string; source: string; title: string;
   scope: Record<string, string | number | boolean>;
   units: Unit[];
   links?: Record<string, string>;
   sourceTruncated?: boolean; truncationReason?: string;
-  nextSearchPage?: number;
+  nextBatch?: number;
   sentenceTimes?: Array<{ from: number; to: number }>;
   metadataTruncated?: string[];
 }
-interface Snapshot { material: Material; size: number; expiresAtMs: number; nextSearchCursor?: string }
+interface Snapshot { material: Material; size: number; expiresAtMs: number; nextBatchCursor?: string }
 interface Position { id: string; unit: number; offset: number }
 export interface PageResult {
   text: string; hasMore: boolean; sourceTruncated: boolean; estimatedTokens: number;
@@ -121,9 +121,15 @@ export class SnapshotCache {
     const { material } = snapshot;
     const scope = material.scope;
     const header = [material.kind === 'bili' ? `视频：${line(material.title)}`
+      : material.kind === 'bili-info' ? `视频简介：${line(material.title)}`
+      : material.kind === 'bili-comments' ? `视频评论：${line(material.title)}`
       : material.kind === 'search' ? `B站搜索：${line(scope.query)}（第${scope.page}页）` : `网页：${line(material.title)}`];
     if (material.kind === 'page') header.push(`pageRef: ${this.encode({ id: start.id, unit: 0, offset: 0 })}`);
     if (material.kind === 'bili') header.push(`P${scope.page}：${line(scope.part)}；UP主：${line(scope.author)}；${scope.isAi ? 'AI' : '人工'}字幕（${line(scope.language)}）`);
+    if (material.kind === 'bili-info') header.push(`BV: ${scope.bvid}；UP主：${line(scope.author)}`);
+    if (material.kind === 'bili-comments') header.push(`BV: ${scope.bvid}；${scope.root
+      ? `根评论 rpid: ${scope.root}；楼中楼第${scope.page}页`
+      : `${scope.sort === 'time' ? '最新' : '热门'}评论；含楼中楼预览`}`);
     if (scope.kind === 'web-section') header.push(`章节：${line(scope.anchor)}`);
     const notices: string[] = [];
     if (material.metadataTruncated?.some(name => ['title', 'scope.part', 'scope.author', 'scope.query'].includes(name)))
@@ -132,9 +138,11 @@ export class SnapshotCache {
       ? `仅取得静态网页文本，渲染未完成：${line(scope.renderingReason)}。`
       : '材料触及保留上限，剩余内容未保留。');
     let content = material.kind === 'search' && !material.units.length && !material.sourceTruncated ? '未找到匹配的视频。' : '';
+    if (material.kind === 'bili-comments' && !material.units.length && !material.sourceTruncated)
+      content = '本次未取得可读取的评论。';
     let failure: string | undefined;
     const current = { ...start };
-    const hasMore = () => current.unit < material.units.length || (!!material.nextSearchPage && !material.sourceTruncated);
+    const hasMore = () => current.unit < material.units.length || (material.nextBatch !== undefined && !material.sourceTruncated);
     const finish = () => {
       const footer = [...notices, ...(hasMore() ? [`续读 cursor: ${this.encode(current)}`] : [])];
       const title = failure ? '[tool failed] ' + failure : header.join('\n');
@@ -225,26 +233,26 @@ export class SnapshotCache {
     return { id: position.id, snapshot };
   }
 
-  nextSearch(cursor: string, expectedKey: string, config: SurfingConfigSection): { page: number; cursor?: string } | undefined {
+  nextBatch(cursor: string, expectedKey: string, config: SurfingConfigSection): { position: number; cursor?: string } | undefined {
     this.trim(config.cache.maxBytes);
     const position = this.decode(cursor);
     const snapshot = this.snapshots.get(position.id);
-    if (!snapshot) throw new ReadError('cursor_expired', '搜索快照已到期，请重新搜索。');
-    if (snapshot.material.key !== expectedKey) throw new ReadError('cursor_mismatch', '游标与搜索词不匹配。');
-    if (position.unit === snapshot.material.units.length && snapshot.material.nextSearchPage && !snapshot.material.sourceTruncated) {
-      if (snapshot.nextSearchCursor) {
-        const child = this.decode(snapshot.nextSearchCursor);
-        if (!this.snapshots.has(child.id)) throw new ReadError('cursor_expired', '下一页搜索快照已释放，请重新搜索。');
+    if (!snapshot) throw new ReadError('cursor_expired', '续读快照已到期，请重新读取。');
+    if (snapshot.material.key !== expectedKey) throw new ReadError('cursor_mismatch', '游标与工具或目标不匹配。');
+    if (position.unit === snapshot.material.units.length && snapshot.material.nextBatch !== undefined && !snapshot.material.sourceTruncated) {
+      if (snapshot.nextBatchCursor) {
+        const child = this.decode(snapshot.nextBatchCursor);
+        if (!this.snapshots.has(child.id)) throw new ReadError('cursor_expired', '后续快照已释放，请重新读取。');
       }
-      return { page: snapshot.material.nextSearchPage, cursor: snapshot.nextSearchCursor };
+      return { position: snapshot.material.nextBatch, cursor: snapshot.nextBatchCursor };
     }
     return undefined;
   }
 
-  rememberSearchNext(cursor: string, nextCursor: string): void {
+  rememberNextBatch(cursor: string, nextCursor: string): void {
     const position = this.decode(cursor);
     const snapshot = this.snapshots.get(position.id);
-    if (snapshot) snapshot.nextSearchCursor = nextCursor;
+    if (snapshot) snapshot.nextBatchCursor = nextCursor;
   }
 
   private trim(maxBytes: number): void {

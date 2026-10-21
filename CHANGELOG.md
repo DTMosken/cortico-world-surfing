@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add anonymous video description and comment readers, including hot/latest ordering, pinned comments, thread replies and cursor continuation.
 - Shorten the environment prompt and remove instructions already in tool descriptions.
 
 ## 0.2.0 - 2026-10-16

@@ -109,15 +109,15 @@
             "minimum": 1,
             "description": "稿件 aid；不知道时只给 BV 或 URL。"
           },
-          "cid": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "特定分P的 cid；省略时按 URL 的 p 或第1P读取。"
-          },
           "url": {
             "type": "string",
             "maxLength": 8192,
             "description": "B站视频长链或 b23.tv 短链，可直接使用分享卡片中的链接。"
+          },
+          "cid": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "特定分P的 cid；省略时按 URL 的 p 或第1P读取。"
           },
           "cursor": {
             "type": "string",
@@ -144,6 +144,125 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 240
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "沿用回执末尾的续读 cursor。"
+          }
+        }
+      },
+      "tags": [
+        "read"
+      ]
+    },
+    {
+      "name": "surfing_read_bili_info",
+      "description": "匿名读取 B站视频简介原文、标题、UP主和分P目录，无需字幕。提供 BV、aid 或视频链接；沿用目标参数和 cursor 续读。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "bvid"
+            ]
+          },
+          {
+            "required": [
+              "aid"
+            ]
+          },
+          {
+            "required": [
+              "url"
+            ]
+          }
+        ],
+        "properties": {
+          "bvid": {
+            "type": "string",
+            "pattern": "^BV[0-9A-Za-z]{10}$",
+            "description": "视频 BV号。"
+          },
+          "aid": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "稿件 aid；不知道时只给 BV 或 URL。"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 8192,
+            "description": "B站视频长链或 b23.tv 短链，可直接使用分享卡片中的链接。"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "沿用回执末尾的续读 cursor。"
+          }
+        }
+      },
+      "tags": [
+        "read"
+      ]
+    },
+    {
+      "name": "surfing_read_bili_comments",
+      "description": "匿名读取 B站视频评论原文、作者、时间、点赞数和 rpid，默认热门排序，含置顶和楼中楼预览。用 root 指定根评论 rpid 读取楼中楼，不带 sort。沿用目标、sort、root 和 cursor 续读，按需取得后续评论。平台限制按回执说明。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "bvid"
+            ]
+          },
+          {
+            "required": [
+              "aid"
+            ]
+          },
+          {
+            "required": [
+              "url"
+            ]
+          }
+        ],
+        "not": {
+          "required": [
+            "sort",
+            "root"
+          ]
+        },
+        "properties": {
+          "bvid": {
+            "type": "string",
+            "pattern": "^BV[0-9A-Za-z]{10}$",
+            "description": "视频 BV号。"
+          },
+          "aid": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "稿件 aid；不知道时只给 BV 或 URL。"
+          },
+          "url": {
+            "type": "string",
+            "maxLength": 8192,
+            "description": "B站视频长链或 b23.tv 短链，可直接使用分享卡片中的链接。"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "hot",
+              "time"
+            ],
+            "description": "hot 为热门（默认），time 为最新；楼中楼不指定。"
+          },
+          "root": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,19}$",
+            "description": "根评论的 rpid 字符串；省略时读取视频评论区。"
           },
           "cursor": {
             "type": "string",

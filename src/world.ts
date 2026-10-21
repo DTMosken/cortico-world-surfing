@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { ToolDef, ToolSpec, ToolOutcome, ToolCallContext, World, WorldWebUiDecl, WorldHost } from 'cortico/core/types.ts';
 import type { WorldContext } from 'cortico/world.ts';
 import { SURFING_DEFAULTS, SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP, applyBiliDefaults, validateConfig, type SurfingConfigSection } from './config.ts';
-import { BiliClient, biliKey, type BiliInput } from './bili.ts';
+import { BiliClient, biliKey, biliCommentsKey, type BiliInput, type BiliCommentsInput } from './bili.ts';
 import { ReadError, asReadError, PublicClient, waitWithSignal, type ReadOperation } from './network.ts';
 import { PageReader, pageKey } from './page-reader.ts';
 import { SnapshotCache, estimateTokens, type Material } from './snapshots.ts';
@@ -12,6 +12,11 @@ import { SnapshotCache, estimateTokens, type Material } from './snapshots.ts';
 const ENV_PROMPT_FILE = fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url));
 
 const cursor = { type: 'string', maxLength: 256, description: '沿用回执末尾的续读 cursor。' };
+const videoTarget = {
+  bvid: { type: 'string', pattern: '^BV[0-9A-Za-z]{10}$', description: '视频 BV号。' },
+  aid: { type: 'integer', minimum: 1, description: '稿件 aid；不知道时只给 BV 或 URL。' },
+  url: { type: 'string', maxLength: 8192, description: 'B站视频长链或 b23.tv 短链，可直接使用分享卡片中的链接。' },
+};
 export const SURFING_TOOL_DECLS: ToolSpec[] = [
   {
     name: 'surfing_read_page', tags: ['read'], description: '读取公开网页正文：提供 URL 初读，或用原页 pageRef 与 linkId 打开正文编号链接；用目标页 pageRef 与 cursor 续读。打开链接时不带 cursor。返回预算内原文，仅接受公开域名，支持 URL 章节锚点。',
@@ -28,10 +33,9 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
   {
     name: 'surfing_read_bili', tags: ['read'], description: '匿名读取 B站视频人工或 AI 字幕。提供 BV 或视频链接即可；可指定 cid 或 URL 中的 p 选择分P。回执为字幕原文片段，未取得字幕不代表无音频。',
     parameters: { type: 'object', additionalProperties: false, anyOf: [{ required: ['bvid'] }, { required: ['aid'] }, { required: ['url'] }], properties: {
-      bvid: { type: 'string', pattern: '^BV[0-9A-Za-z]{10}$', description: '视频 BV号。' },
-      aid: { type: 'integer', minimum: 1, description: '稿件 aid；不知道时只给 BV 或 URL。' },
+      ...videoTarget,
       cid: { type: 'integer', minimum: 1, description: '特定分P的 cid；省略时按 URL 的 p 或第1P读取。' },
-      url: { type: 'string', maxLength: 8192, description: 'B站视频长链或 b23.tv 短链，可直接使用分享卡片中的链接。' }, cursor,
+      cursor,
     } },
   },
   {
@@ -40,6 +44,24 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
       query: { type: 'string', minLength: 1, maxLength: 240 }, cursor,
     } },
   },
+  {
+    name: 'surfing_read_bili_info', tags: ['read'],
+    description: '匿名读取 B站视频简介原文、标题、UP主和分P目录，无需字幕。提供 BV、aid 或视频链接；沿用目标参数和 cursor 续读。',
+    parameters: { type: 'object', additionalProperties: false,
+      anyOf: [{ required: ['bvid'] }, { required: ['aid'] }, { required: ['url'] }],
+      properties: { ...videoTarget, cursor } },
+  },
+  {
+    name: 'surfing_read_bili_comments', tags: ['read'],
+    description: '匿名读取 B站视频评论原文、作者、时间、点赞数和 rpid，默认热门排序，含置顶和楼中楼预览。'
+      + '用 root 指定根评论 rpid 读取楼中楼，不带 sort。沿用目标、sort、root 和 cursor 续读，按需取得后续评论。平台限制按回执说明。',
+    parameters: { type: 'object', additionalProperties: false,
+      anyOf: [{ required: ['bvid'] }, { required: ['aid'] }, { required: ['url'] }],
+      not: { required: ['sort', 'root'] },
+      properties: { ...videoTarget,
+        sort: { type: 'string', enum: ['hot', 'time'], description: 'hot 为热门（默认），time 为最新；楼中楼不指定。' },
+        root: { type: 'string', pattern: '^[1-9][0-9]{0,19}$', description: '根评论的 rpid 字符串；省略时读取视频评论区。' }, cursor } },
+  },
 ];
 
 export class SurfingWorld implements World {
@@ -47,7 +69,7 @@ export class SurfingWorld implements World {
   private readonly cache = new SnapshotCache();
   private readonly bili = new BiliClient();
   private readonly pages = new PageReader();
-  private readonly pendingSearches = new Map<string,{promise:Promise<string>;signal:AbortSignal}>();
+  private readonly pendingBatches = new Map<string,{promise:Promise<string>;signal:AbortSignal}>();
   private lifecycle = new AbortController();
   private stopped = false;
   private last?: { status: string; failed: boolean; estimatedTokens: number; sourceTruncated: boolean };
@@ -94,17 +116,29 @@ export class SurfingWorld implements World {
           key = pageKey(args.url);
           if (!cursor) material = await this.pages.read(args.url, operation, config.network.maxDownloadBytes);
         }
-      } else if (name === 'surfing_read_bili') {
+      } else if (['surfing_read_bili', 'surfing_read_bili_info', 'surfing_read_bili_comments'].includes(name)) {
         const input: BiliInput = { bvid: args.bvid as string | undefined, aid: args.aid as number | undefined,
           cid: args.cid as number | undefined, url: args.url as string | undefined };
-        key = biliKey(input);
-        if (!cursor) material = await this.bili.read(input, operation, config.bili.subtitleGroupSec, config.bili);
+        if (name === 'surfing_read_bili') {
+          key = biliKey(input);
+          if (!cursor) material = await this.bili.read(input, operation, config.bili.subtitleGroupSec, config.bili);
+        } else if (name === 'surfing_read_bili_info') {
+          key = 'info:' + biliKey(input);
+          if (!cursor) material = await this.bili.readInfo(input, operation);
+        } else {
+          const comments: BiliCommentsInput = { ...input, sort: args.sort as BiliCommentsInput['sort'], root: args.root as string | undefined };
+          key = biliCommentsKey(comments);
+          if (cursor) cursor = await this.batchCursor(cursor, key, config, operation,
+            (position, op) => this.bili.readComments(comments, position, op));
+          else material = await this.bili.readComments(comments, comments.root ? 1 : 0, operation);
+        }
       } else {
         if (typeof args.query !== 'string' || !args.query.trim() || [...args.query.trim()].length > 240)
           throw new ReadError('invalid_input', '搜索词需为1–240字符。');
         const query = args.query.trim();
         key = 'search:' + query;
-        if (cursor) cursor = await this.searchCursor(cursor,key,query,config,operation);
+        if (cursor) cursor = await this.batchCursor(cursor,key,config,operation,
+          (page, op) => this.bili.search(query,page,op));
         else material = await this.bili.search(query, 1, operation);
       }
       operation.signal.throwIfAborted();
@@ -121,30 +155,31 @@ export class SurfingWorld implements World {
     } finally { operation?.close(); }
   }
 
-  private async searchCursor(original: string, key: string, query: string, config: SurfingConfigSection, operation: ReadOperation): Promise<string> {
+  private async batchCursor(original: string, key: string, config: SurfingConfigSection, operation: ReadOperation,
+    load: (position: number, operation: ReadOperation) => Promise<Material>): Promise<string> {
     while (true) {
       operation.signal.throwIfAborted();
-      const next = this.cache.nextSearch(original,key,config);
+      const next = this.cache.nextBatch(original,key,config);
       if (!next) return original;
       if (next.cursor) return next.cursor;
-      let pending = this.pendingSearches.get(original);
+      let pending = this.pendingBatches.get(original);
       if (!pending) {
         const promise = (async()=>{
-          const material = await this.bili.search(query,next.page,operation);
+          const material = await load(next.position,operation);
           operation.signal.throwIfAborted();
           const created = this.cache.put(material,config);
-          this.cache.rememberSearchNext(original,created);
+          this.cache.rememberNextBatch(original,created);
           return created;
         })();
-        pending = {promise,signal:operation.signal}; this.pendingSearches.set(original,pending);
+        pending = {promise,signal:operation.signal}; this.pendingBatches.set(original,pending);
         void promise.finally(()=>{
-          if (this.pendingSearches.get(original)===pending) this.pendingSearches.delete(original);
+          if (this.pendingBatches.get(original)===pending) this.pendingBatches.delete(original);
         }).catch(()=>{});
       }
       try { return await waitWithSignal(pending.promise,operation.signal); }
       catch (error) {
         if (operation.signal.aborted || !pending.signal.aborted) throw error;
-        if (this.pendingSearches.get(original)===pending) this.pendingSearches.delete(original);
+        if (this.pendingBatches.get(original)===pending) this.pendingBatches.delete(original);
       }
     }
   }
@@ -173,7 +208,7 @@ export class SurfingWorld implements World {
 
   async start(_host: WorldHost): Promise<void> { this.lifecycle = new AbortController(); this.stopped = false; }
   async stop(): Promise<void> {
-    this.stopped = true; this.lifecycle.abort(); this.cache.clear(); this.pendingSearches.clear();
+    this.stopped = true; this.lifecycle.abort(); this.cache.clear(); this.pendingBatches.clear();
     await this.pages.stop();
   }
 }

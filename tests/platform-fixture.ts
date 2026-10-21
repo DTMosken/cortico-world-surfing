@@ -29,6 +29,10 @@ export class PlatformFixture implements ReadOperation {
   subtitleRequests = 0;
   nativeStatus = 200;
   nativeAtMs: number[] = [];
+  description = '简介第一行。\n简介第二行。';
+  commentRequests: Array<{ position: number; sort: string; root: string | null }> = [];
+  commentsJson?: unknown;
+  commentBody = '评论原文。';
   close() {}
   async get(url: string, options: GetOptions = {}) {
     this.requests++;
@@ -40,7 +44,26 @@ export class PlatformFixture implements ReadOperation {
     if (target.pathname.endsWith('/nav')) body = { code: -101, data: { isLogin: false,
       wbi_img: { img_url: 'https://example.org/'+'a'.repeat(32)+'.png', sub_url: 'https://example.org/'+'b'.repeat(32)+'.png' } } };
     else if (target.pathname.endsWith('/wbi/view')) body = { code: 0, data: { bvid: 'BV1aa411a7aa', aid: 100, title: '竞赛介绍',
-      owner: { name: '作者' }, pages: [{ cid: 200, page: 1, part: '介绍', duration: 90 }, { cid: 201, page: 2, part: '附录', duration: 30 }] } };
+      desc: this.description, owner: { name: '作者' }, pages: [{ cid: 200, page: 1, part: '介绍', duration: 90 }, { cid: 201, page: 2, part: '附录', duration: 30 }] } };
+    else if (['/x/v2/reply/main', '/x/v2/reply/wbi/main', '/x/v2/reply/reply'].includes(target.pathname)) {
+      const root = target.searchParams.get('root');
+      const position = Number(target.searchParams.get(root ? 'pn' : 'next'));
+      const sort = target.searchParams.get('mode') ?? 'thread';
+      this.commentRequests.push({ position, sort, root });
+      const comment = (rpid: string, message: string) => ({ rpid_str: rpid, ctime: 1700000000, like: 12, rcount: 2,
+        member: { uname: '读者' }, content: { message }, replies: null });
+      const pinned = comment('9007199254740993', '置顶原文。');
+      body = target.pathname.endsWith('/reply/main') || (!root && !target.searchParams.has('w_rid'))
+        ? { code: -352 } : this.commentsJson ?? { code: 0, data: root ? {
+        page: { num: position, size: 1, count: 2 }, root: pinned,
+        replies: [comment(String(300 + position), `楼中楼第${position}页。`)],
+      } : {
+        cursor: { next: 7, is_end: position === 7, mode: Number(sort) },
+        top_replies: position === 0 ? [pinned] : [], top: { upper: position === 0 ? pinned : null },
+        replies: [{ ...comment(String(200 + position), position === 0 ? this.commentBody : '后续评论。'),
+          replies: position === 0 ? [comment('301', '楼中楼预览。')] : null }],
+      } };
+    }
     else if (target.pathname.endsWith('/subtitle/web/view')) {
       this.nativeRequests++;
       this.nativeAtMs.push(Date.now());
