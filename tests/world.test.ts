@@ -293,6 +293,7 @@ test.each([
     spec: () => ({ model: 'test', thinking: false }),
     context: { hardTokens: () => null, estimateTokens: () => 0, contextOverflow: () => false },
     blobs: { intern: () => undefined }, worlds: { all: () => [world], visible: () => [world] },
+    onWorldFailed: (_world, detail) => { throw new Error(`Unexpected World failure: ${detail}`); },
   });
   bus.setPreemptHandler(trigger => {
     if (trigger === 'interrupt') loop.interruptCurrentRound();
