@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 - 2026-10-30
+
+- Align development and CI validation with Cortico 0.2.10.
+
 ## 0.3.0 - 2026-10-21
 
 - Add anonymous video description and comment readers, including hot/latest ordering, pinned comments, thread replies and cursor continuation.
