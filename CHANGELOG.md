@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 - 2026-11-03
+## 0.3.2 - 2026-11-03
 
 - Use Microlink to render pages when local Chromium is unavailable, with an optional API key and keyless requests.
 - Add a WebUI panel for opening the key file, checking key status and finding registration instructions.
