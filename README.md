@@ -1,4 +1,4 @@
-<!-- Owner: package.json, src/definition.ts, src/world.ts, src/ENV_PROMPT.md, src/network.ts, src/bili.ts -->
+<!-- Owner: package.json, src/definition.ts, src/world.ts, src/ENV_PROMPT.md, src/network.ts, src/bili.ts, src/microlink.ts, src/webui/client.ts -->
 # 网上冲浪
 
 让 Cortico 阅读公开网页、B站视频简介、字幕和评论，搜索视频，并根据读到的内容回答问题。发送链接或BV号即可使用，B站读取均使用匿名请求。
@@ -18,11 +18,32 @@
 
 1. 在 Cortico 扩展管理页输入 `cortico-world-surfing` 安装 npm 包；使用本地源码时选择本项目目录。
 2. 重启 Cortico 进程，启用“网上冲浪”。
-3. 如需读取依赖脚本加载正文的网页，在扩展目录执行一次：
+3. 读取依赖脚本加载正文的网页时，优先使用本机 Chromium。可在扩展目录安装：
 
    ```powershell
    corepack pnpm install:browser
    ```
+
+本机 Chromium 不可用时，扩展将目标网页 URL 发送给 Microlink，由其渲染后返回 HTML；正文、编号链接和章节锚点仍由本扩展提取。静态读取、Chromium 和 Microlink 共用单次读取超时及下载上限。Chromium 已启动后的网页错误、超时或取消不触发 Microlink。
+
+## Microlink（可选）
+
+无需 API Key 即可使用 Microlink 后备。配置 Key 后使用认证接口及该 Key 的额度；Key 仅发送给 Microlink，不进入模型回执。
+
+在网上冲浪的「Microlink（可选）」面板点击「打开密钥文件」，编辑部署目录的 `.env`：
+
+```dotenv
+CORTICO_SURFING_MICROLINK_API_KEY=
+```
+
+取得免费 Key 的步骤：
+
+1. 打开 [Microlink 注册页](https://dashboard.microlink.io/signup)，按提示注册并登录。
+2. 在控制台取得并复制免费 API Key，无需购买付费套餐。
+3. 将 Key 填在上面的等号后，不加引号，保存文件。
+4. 点击「刷新密钥状态」。下次远程读取使用新 Key；清空值并保存可恢复免 Key 调用。
+
+免 Key 和免费 Key 的额度不同，当前限制见 [Microlink 额度说明](https://microlink.io/docs/api/basics/rate-limit)。额度耗尽或访问失败时，回执说明原因；已有短静态正文仍返回，并标明未取得完整渲染内容。
 
 ## World 兼容性
 

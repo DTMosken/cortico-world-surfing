@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 - 2026-11-03
+
+- Use Microlink to render pages when local Chromium is unavailable, with an optional API key and keyless requests.
+- Add a WebUI panel for opening the key file, checking key status and finding registration instructions.
+
 ## 0.3.1 - 2026-10-30
 
 - Align development and CI validation with Cortico 0.2.10.

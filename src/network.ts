@@ -76,7 +76,7 @@ export function requestHeaders(options: GetOptions): Record<string, string> {
     'accept-encoding': 'gzip, deflate, br', accept: '*/*', 'accept-language': '*',
   };
   for (const [key, value] of Object.entries(options.headers ?? {})) {
-    if (['accept', 'accept-language', 'referer', 'user-agent'].includes(key.toLowerCase())) headers[key.toLowerCase()] = value;
+    if (['accept', 'accept-language', 'referer', 'user-agent', 'x-api-key'].includes(key.toLowerCase())) headers[key.toLowerCase()] = value;
   }
   return headers;
 }

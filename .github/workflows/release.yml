@@ -93,6 +93,11 @@ jobs:
       - name: Typecheck
         run: pnpm run typecheck
 
+      - name: WebUI
+        run: |
+          pnpm typecheck:web
+          pnpm build:web
+
       - name: Check extension
         working-directory: Cortico
         run: pnpm check:extension ../extension

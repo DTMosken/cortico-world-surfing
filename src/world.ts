@@ -3,11 +3,13 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ToolDef, ToolSpec, ToolOutcome, ToolCallContext, World, WorldWebUiDecl, WorldHost } from 'cortico/core/types.ts';
 import type { WorldContext } from 'cortico/world.ts';
-import { SURFING_DEFAULTS, SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP, applyBiliDefaults, validateConfig, type SurfingConfigSection } from './config.ts';
+import { SURFING_DEFAULTS, SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP, SURFING_MICROLINK_SECRET, applyBiliDefaults, validateConfig, type SurfingConfigSection } from './config.ts';
 import { BiliClient, biliKey, biliCommentsKey, type BiliInput, type BiliCommentsInput } from './bili.ts';
 import { ReadError, asReadError, PublicClient, waitWithSignal, type ReadOperation } from './network.ts';
 import { PageReader, pageKey } from './page-reader.ts';
 import { SnapshotCache, estimateTokens, type Material } from './snapshots.ts';
+import { MicrolinkRenderer } from './microlink.ts';
+import { prepareKeyFile, openSecretFile } from './secret-file.ts';
 
 const ENV_PROMPT_FILE = fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url));
 
@@ -68,14 +70,16 @@ export class SurfingWorld implements World {
   readonly id = 'surfing';
   private readonly cache = new SnapshotCache();
   private readonly bili = new BiliClient();
-  private readonly pages = new PageReader();
+  private readonly pages: PageReader;
   private readonly pendingBatches = new Map<string,{promise:Promise<string>;signal:AbortSignal}>();
   private lifecycle = new AbortController();
   private stopped = false;
   private last?: { status: string; failed: boolean; estimatedTokens: number; sourceTruncated: boolean };
 
-  constructor(private readonly ctx: WorldContext<SurfingConfigSection>, private readonly client = new PublicClient()) {
+  constructor(private readonly ctx: WorldContext<SurfingConfigSection>, private readonly client = new PublicClient(),
+    private readonly openFile = openSecretFile) {
     applyBiliDefaults(ctx.cfg);
+    this.pages = new PageReader(undefined, new MicrolinkRenderer(() => ctx.secret(SURFING_MICROLINK_SECRET)));
   }
 
   envPromptVars(): Record<string, string> {
@@ -197,6 +201,16 @@ export class SurfingWorld implements World {
         { label: '文本缓存', value: Math.ceil(this.cache.sizeBytes / 1024) + ' KiB' },
       ],
       config: [SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP],
+      panels: [{ id: 'microlink', title: 'Microlink（可选）' }],
+      invoke: async (panel, method) => {
+        if (panel !== 'microlink') throw new Error('未知面板。');
+        if (method === 'state') return { keySet: !!this.ctx.secret(SURFING_MICROLINK_SECRET).trim() };
+        if (method === 'openKeyFile') {
+          const file = prepareKeyFile(this.ctx.botDir);
+          await this.openFile(file); return { file };
+        }
+        throw new Error('未知操作。');
+      },
       promptDocs: [{ key: 'worlds.surfing.envPrompt', title: '网上冲浪环境提示词', description: '网页、视频与学习工具的使用指导。',
         path: existsSync(override) ? override : ENV_PROMPT_FILE, deploymentPath: override, role: 'envPrompt',
         vars: [

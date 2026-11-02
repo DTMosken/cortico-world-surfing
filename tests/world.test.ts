@@ -50,8 +50,8 @@ test('独立 World 无需凭证即可提供工具和可调配置', () => {
   expect(fields).toContain('worlds.surfing.bili.maxSubtitleRetries');
   expect(fields).toContain('worlds.surfing.bili.subtitleRetryDelayMs');
   expect(fields.some(field => /login|cookie|apiKey|summaryModel/i.test(field))).toBe(false);
-  expect(world.webUi().panels).toBeUndefined();
-  expect(world.webUi().invoke).toBeUndefined();
+  expect(world.webUi().panels).toEqual([{ id: 'microlink', title: 'Microlink（可选）' }]);
+  expect(world.webUi().invoke).toBeTypeOf('function');
   const first = SURFING.defaults(), second = SURFING.defaults();
   first.reading.maxResponseEstimatedTokens = 1024;
   expect(second.reading.maxResponseEstimatedTokens).toBe(SURFING_DEFAULTS.reading.maxResponseEstimatedTokens);

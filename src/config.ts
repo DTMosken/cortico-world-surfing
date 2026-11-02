@@ -1,5 +1,7 @@
 import type { ConfigGroup } from 'cortico/core/types.ts';
 
+export const SURFING_MICROLINK_SECRET = 'CORTICO_SURFING_MICROLINK_API_KEY';
+
 export interface SurfingConfigSection {
   enabled: boolean;
   reading: { maxResponseEstimatedTokens: number; maxSourceChars: number };
