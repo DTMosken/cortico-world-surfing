@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Shorten page and video tool descriptions and remove repeated input guidance.
+
 ## 0.3.1 - 2026-10-30
 
 - Align development and CI validation with Cortico 0.2.10.
