@@ -17,7 +17,7 @@ import { itemText, type ContextRecord } from 'cortico/protocol/open-responses/co
 import type { WorldContext } from 'cortico/world.ts';
 import { SURFING } from '../src/definition.ts';
 import { SurfingWorld } from '../src/world.ts';
-import { SURFING_DEFAULTS, type SurfingConfigSection } from '../src/config.ts';
+import { SURFING_CONFIG_GROUPS, SURFING_DEFAULTS, type SurfingConfigSection } from '../src/config.ts';
 import { estimateTokens } from '../src/snapshots.ts';
 import { PublicClient, validatePublicUrl, waitWithSignal, type NetworkLimits } from '../src/network.ts';
 import { PlatformFixture, receipt } from './platform-fixture.ts';
@@ -44,13 +44,13 @@ test('独立 World 无需凭证即可提供工具和可调配置', () => {
   const world = new SurfingWorld(context());
   expect(world.tools().map(x=>x.name)).toEqual(['surfing_read_page','surfing_read_bili','surfing_search_bili',
     'surfing_read_bili_info','surfing_read_bili_comments']);
-  const groups = world.webUi().config!;
-  const fields = groups.flatMap(group => Object.keys(group.schema.properties));
+  const fields = SURFING_CONFIG_GROUPS.flatMap(group => Object.keys(group.schema.properties));
   expect(fields).toContain('worlds.surfing.reading.maxResponseEstimatedTokens');
   expect(fields).toContain('worlds.surfing.bili.maxSubtitleRetries');
   expect(fields).toContain('worlds.surfing.bili.subtitleRetryDelayMs');
   expect(fields.some(field => /login|cookie|apiKey|summaryModel/i.test(field))).toBe(false);
-  expect(world.webUi().panels).toEqual([{ id: 'microlink', title: 'Microlink（可选）' }]);
+  expect(world.webUi().config).toBeUndefined();
+  expect(world.webUi().panels).toEqual([{ id: 'config', title: '配置' }]);
   expect(world.webUi().invoke).toBeTypeOf('function');
   const first = SURFING.defaults(), second = SURFING.defaults();
   first.reading.maxResponseEstimatedTokens = 1024;
