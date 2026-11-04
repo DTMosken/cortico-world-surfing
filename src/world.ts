@@ -43,7 +43,7 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
       mode: { type: 'string', enum: ['subtitles', 'info', 'comments'], description: 'subtitles 字幕（默认），info 简介，comments 评论。' },
       cid: { type: 'integer', minimum: 1, description: '字幕分P的 cid；省略时按 URL 的 p 或第1P读取。' },
       sort: { type: 'string', enum: ['hot', 'time'], description: '仅 comments：hot 为热门（默认），time 为最新；楼中楼不指定。' },
-      root: { type: 'string', pattern: '^[1-9][0-9]{0,19}$', description: '仅 comments：根评论的 rpid 字符串；省略时读取视频评论区。' },
+      root: { type: 'string', pattern: '^[1-9][0-9]{0,19}$', description: '仅 comments：读取该根评论楼中楼，填 rpid 字符串；省略时读取视频评论区。' },
       cursor,
     } },
   },

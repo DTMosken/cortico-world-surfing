@@ -145,7 +145,7 @@
           "root": {
             "type": "string",
             "pattern": "^[1-9][0-9]{0,19}$",
-            "description": "仅 comments：根评论的 rpid 字符串；省略时读取视频评论区。"
+            "description": "仅 comments：读取该根评论楼中楼，填 rpid 字符串；省略时读取视频评论区。"
           },
           "cursor": {
             "type": "string",
