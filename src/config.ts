@@ -1,5 +1,7 @@
 import type { ConfigGroup } from 'cortico/core/types.ts';
 
+export const SURFING_MICROLINK_SECRET = 'CORTICO_SURFING_MICROLINK_API_KEY';
+
 export interface SurfingConfigSection {
   enabled: boolean;
   reading: { maxResponseEstimatedTokens: number; maxSourceChars: number };
@@ -18,7 +20,7 @@ export const SURFING_DEFAULTS: SurfingConfigSection = {
 
 export const SURFING_CONFIG_GROUP: ConfigGroup = {
   id: 'world:surfing', owner: 'world:surfing',
-  schema: { type: 'object', title: '阅读返回量', properties: {
+  schema: { type: 'object', title: '阅读与字幕', properties: {
     'worlds.surfing.reading.maxResponseEstimatedTokens': {
       type: 'integer', title: '单次返回上限', minimum: 1024, maximum: 32768,
       'x-suffix': '估算 token', 'x-hot': true,
@@ -66,6 +68,12 @@ export const SURFING_LIMITS_CONFIG_GROUP: ConfigGroup = {
   } },
 };
 
+export const SURFING_CONFIG_GROUPS = [SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP];
+
+export function configValue(config: SurfingConfigSection, path: string): unknown {
+  return path.split('.').slice(2).reduce<unknown>((part, key) => (part as Record<string, unknown>)?.[key], config);
+}
+
 export function applyBiliDefaults(config: SurfingConfigSection): void {
   if (config.bili.maxSubtitleRetries === undefined) config.bili.maxSubtitleRetries = SURFING_DEFAULTS.bili.maxSubtitleRetries;
   if (config.bili.subtitleRetryDelayMs === undefined) config.bili.subtitleRetryDelayMs = SURFING_DEFAULTS.bili.subtitleRetryDelayMs;
@@ -73,9 +81,9 @@ export function applyBiliDefaults(config: SurfingConfigSection): void {
 
 export function validateConfig(config: SurfingConfigSection): void {
   applyBiliDefaults(config);
-  for (const group of [SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP]) {
+  for (const group of SURFING_CONFIG_GROUPS) {
     for (const [path, schema] of Object.entries(group.schema.properties)) {
-      const value = path.split('.').slice(2).reduce<unknown>((part, key) => (part as Record<string, unknown>)?.[key], config);
+      const value = configValue(config, path);
       if (typeof value !== 'number' || !Number.isInteger(value) || value < schema.minimum! || value > schema.maximum!)
         throw new Error(`${schema.title}超出配置范围。`);
     }

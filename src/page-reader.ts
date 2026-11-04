@@ -3,6 +3,7 @@ import { ReadError, asReadError, validatePublicUrl, waitWithSignal, type Failure
 import { createServer, type Server } from 'node:net';
 import { chromium, type Browser } from 'playwright';
 import type { Material } from './snapshots.ts';
+import { MicrolinkRenderer } from './microlink.ts';
 
 const ENGINE = new URL('../dist/page-engine.mjs', import.meta.url);
 export function pageKey(input: string): string { return 'page:' + validatePublicUrl(input).href; }
@@ -27,7 +28,7 @@ function extract(html: string, url: string, signal: AbortSignal): Promise<Materi
 }
 
 export class PageReader {
-  constructor(private readonly renderer = new Renderer()) {}
+  constructor(private readonly renderer = new Renderer(), private readonly microlink = new MicrolinkRenderer()) {}
 
   async read(input: string, operation: ReadOperation, maxBytes: number): Promise<Material> {
     const original = validatePublicUrl(input);
@@ -65,10 +66,19 @@ export class PageReader {
     catch (error) {
       if (!(error instanceof ReadError) || error.kind !== 'content_unavailable') throw error;
       try {
-        const rendered = await this.renderer.render(target.href, operation, maxBytes,response);
+        let rendered: { html: string; url: string };
+        let provider = 'chromium';
+        try { rendered = await this.renderer.render(target.href, operation, maxBytes, response); }
+        catch (error) {
+          if (operation.signal.aborted || !(error instanceof ReadError) || error.kind !== 'browser_unavailable') throw error;
+          rendered = await this.microlink.render(target.href, operation, maxBytes);
+          provider = 'microlink';
+        }
+        this.rejectVideo(validatePublicUrl(rendered.url));
         material = await extract(rendered.html, rendered.url, operation.signal);
         delete material.scope.mayNeedRendering;
         material.scope.extraction = 'rendered-html';
+        material.scope.renderingProvider = provider;
       } catch (renderError) {
         if (!staticMaterial || operation.signal.aborted) throw renderError;
         const failure = asReadError(renderError);

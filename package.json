@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-surfing",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "type": "module",
   "description": "读取公开网页正文和 B站视频简介、字幕、评论，支持视频搜索、分段续读和可调返回量。",
   "author": "DTMosken",
@@ -27,7 +27,8 @@
       "browser",
       "video"
     ],
-    "describe": "describe.json"
+    "describe": "describe.json",
+    "webUiClient": "dist/webui.js"
   },
   "files": [
     "src",
@@ -43,6 +44,8 @@
   "scripts": {
     "test": "node scripts/build-engine.mjs && vitest run",
     "build:engine": "node scripts/build-engine.mjs",
+    "build:web": "esbuild src/webui/client.ts --bundle --format=esm --outfile=dist/webui.js",
+    "typecheck:web": "tsc -p tsconfig.web.json --noEmit",
     "typecheck": "tsc --noEmit",
     "install:browser": "node scripts/install-browser.mjs"
   },
