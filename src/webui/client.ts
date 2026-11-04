@@ -1,7 +1,7 @@
 import type { WebUiClientBundle, WebUiPanelContext } from 'cortico/web/shared/client-panel.ts';
 import { SURFING_CONFIG_GROUPS, SURFING_LIMITS_CONFIG_GROUP, SURFING_MICROLINK_SECRET } from '../config.ts';
 
-interface ConfigState { values: Record<string, number>; keySet: boolean }
+interface ConfigState { values: Record<string, number | boolean>; keySet: boolean }
 
 const errorText = (error: unknown): string => error instanceof Error ? error.message : '操作失败';
 
@@ -19,23 +19,33 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px 24px';
     const saved = ui.msgline('');
     for (const [path, property] of Object.entries(group.schema.properties)) {
-      const scale = property['x-scale'] ?? 1;
-      const input = ui.input({ type: 'number', value: String(state.values[path]! / scale), onChange: value => {
+      const save = (value: number | boolean, apply: (next: number | boolean) => void): void => {
         saves = saves.then(async () => {
-          const next = await ctx.invoke<ConfigState>('save', [path, Number(value) * scale]);
-          if (input.value === value) input.value = String(next.values[path]! / scale);
+          apply((await ctx.invoke<ConfigState>('save', [path, value])).values[path]!);
           saved.textContent = `已保存：${property.title}`; saved.classList.remove('bad');
           void ctx.refresh().catch(() => undefined);
         }).catch(error => { saved.textContent = errorText(error); saved.classList.add('bad'); });
-      } });
-      input.min = String(property.minimum! / scale);
-      input.max = String(property.maximum! / scale);
-      const field = ui.field(`${property.title}（${property['x-suffix']}）`, input);
+      };
       const note = ui.h('small', 'muted', property.description);
       note.id = path;
-      input.setAttribute('aria-describedby', note.id);
       const row = ui.h('div');
-      row.append(field, note);
+      if (property.type === 'boolean') {
+        const box = ui.checkbox(property.title, { checked: state.values[path] === true,
+          onChange: checked => save(checked, next => box.setChecked(next === true)) });
+        box.input.setAttribute('aria-describedby', note.id);
+        const line = ui.h('div');
+        line.append(box.el);
+        row.append(line, note);
+      } else {
+        const scale = property['x-scale'] ?? 1;
+        const input = ui.input({ type: 'number', value: String(Number(state.values[path]) / scale), onChange: value => {
+          save(Number(value) * scale, next => { if (input.value === value) input.value = String(Number(next) / scale); });
+        } });
+        input.min = String(property.minimum! / scale);
+        input.max = String(property.maximum! / scale);
+        input.setAttribute('aria-describedby', note.id);
+        row.append(ui.field(`${property.title}（${property['x-suffix']}）`, input), note);
+      }
       grid.append(row);
     }
     sheet.body.append(grid, saved);

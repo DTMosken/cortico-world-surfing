@@ -5,7 +5,8 @@ var SURFING_DEFAULTS = {
   reading: { maxResponseEstimatedTokens: 3e3, maxSourceChars: 3e5 },
   bili: { subtitleGroupSec: 30, maxSubtitleRetries: 2, subtitleRetryDelayMs: 1e3 },
   network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 2e4 },
-  cache: { ttlMs: 9e5, maxBytes: 32 * 1024 * 1024 }
+  cache: { ttlMs: 9e5, maxBytes: 32 * 1024 * 1024 },
+  search: { bili: true, tieba: true, moegirl: true, baike: true, maxResults: 5 }
 };
 var SURFING_CONFIG_GROUP = {
   id: "world:surfing",
@@ -48,6 +49,25 @@ var SURFING_CONFIG_GROUP = {
       "x-hot": true,
       description: "\u540E\u7EED\u6BCF\u6B21\u7B49\u5F85\u7FFB\u500D\uFF0C\u91CD\u8BD5\u5171\u7528\u5355\u6B21\u8BFB\u53D6\u8D85\u65F6\u3002\u65B0\u8BFB\u53D6\u751F\u6548\u3002"
     }
+  } }
+};
+var SURFING_SEARCH_CONFIG_GROUP = {
+  id: "world:surfing:search",
+  owner: "world:surfing",
+  schema: { type: "object", title: "\u7AD9\u70B9\u641C\u7D22", properties: {
+    "worlds.surfing.search.maxResults": {
+      type: "integer",
+      title: "\u6BCF\u6E90\u663E\u793A\u6761\u6570",
+      minimum: 1,
+      maximum: 10,
+      "x-suffix": "\u6761",
+      "x-hot": true,
+      description: "surf_all \u7684 B\u7AD9\u548C\u8D34\u5427\u6BCF\u6279\u663E\u793A\u6761\u6570\uFF1B\u8D34\u5427\u672A\u663E\u793A\u7684\u6761\u76EE\u7559\u7ED9\u201C\u66F4\u591A\u8D34\u5427\u7ED3\u679C\u201D\u3002\u4E0B\u6B21\u8C03\u7528\u751F\u6548\u3002"
+    },
+    "worlds.surfing.search.bili": { type: "boolean", title: "B\u7AD9", "x-hot": true, description: "\u5173\u95ED\u540E surf_all \u4E0D\u8BF7\u6C42\u6B64\u6765\u6E90\uFF0Csurfing_search_bili \u4E0D\u53D7\u5F71\u54CD\u3002" },
+    "worlds.surfing.search.tieba": { type: "boolean", title: "\u8D34\u5427", "x-hot": true, description: "\u5173\u95ED\u540E surf_all \u4E0D\u8BF7\u6C42\u6B64\u6765\u6E90\u3002" },
+    "worlds.surfing.search.moegirl": { type: "boolean", title: "\u840C\u5A18\u767E\u79D1", "x-hot": true, description: "\u5173\u95ED\u540E surf_all \u4E0D\u8BF7\u6C42\u6B64\u6765\u6E90\u3002" },
+    "worlds.surfing.search.baike": { type: "boolean", title: "\u767E\u5EA6\u767E\u79D1", "x-hot": true, description: "\u5173\u95ED\u540E surf_all \u4E0D\u8BF7\u6C42\u6B64\u6765\u6E90\u3002" }
   } }
 };
 var SURFING_LIMITS_CONFIG_GROUP = {
@@ -100,7 +120,7 @@ var SURFING_LIMITS_CONFIG_GROUP = {
     }
   } }
 };
-var SURFING_CONFIG_GROUPS = [SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP];
+var SURFING_CONFIG_GROUPS = [SURFING_CONFIG_GROUP, SURFING_SEARCH_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP];
 
 // src/webui/client.ts
 var errorText = (error) => error instanceof Error ? error.message : "\u64CD\u4F5C\u5931\u8D25";
@@ -116,11 +136,9 @@ async function mount(ctx) {
     grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px 24px";
     const saved = ui.msgline("");
     for (const [path, property] of Object.entries(group.schema.properties)) {
-      const scale = property["x-scale"] ?? 1;
-      const input = ui.input({ type: "number", value: String(state.values[path] / scale), onChange: (value) => {
+      const save = (value, apply) => {
         saves = saves.then(async () => {
-          const next = await ctx.invoke("save", [path, Number(value) * scale]);
-          if (input.value === value) input.value = String(next.values[path] / scale);
+          apply((await ctx.invoke("save", [path, value])).values[path]);
           saved.textContent = `\u5DF2\u4FDD\u5B58\uFF1A${property.title}`;
           saved.classList.remove("bad");
           void ctx.refresh().catch(() => void 0);
@@ -128,15 +146,31 @@ async function mount(ctx) {
           saved.textContent = errorText(error);
           saved.classList.add("bad");
         });
-      } });
-      input.min = String(property.minimum / scale);
-      input.max = String(property.maximum / scale);
-      const field = ui.field(`${property.title}\uFF08${property["x-suffix"]}\uFF09`, input);
+      };
       const note = ui.h("small", "muted", property.description);
       note.id = path;
-      input.setAttribute("aria-describedby", note.id);
       const row = ui.h("div");
-      row.append(field, note);
+      if (property.type === "boolean") {
+        const box = ui.checkbox(property.title, {
+          checked: state.values[path] === true,
+          onChange: (checked) => save(checked, (next) => box.setChecked(next === true))
+        });
+        box.input.setAttribute("aria-describedby", note.id);
+        const line = ui.h("div");
+        line.append(box.el);
+        row.append(line, note);
+      } else {
+        const scale = property["x-scale"] ?? 1;
+        const input = ui.input({ type: "number", value: String(Number(state.values[path]) / scale), onChange: (value) => {
+          save(Number(value) * scale, (next) => {
+            if (input.value === value) input.value = String(Number(next) / scale);
+          });
+        } });
+        input.min = String(property.minimum / scale);
+        input.max = String(property.maximum / scale);
+        input.setAttribute("aria-describedby", note.id);
+        row.append(ui.field(`${property.title}\uFF08${property["x-suffix"]}\uFF09`, input), note);
+      }
       grid.append(row);
     }
     sheet.body.append(grid, saved);

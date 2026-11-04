@@ -42,8 +42,7 @@ function context(): WorldContext<SurfingConfigSection> {
 
 test('独立 World 无需凭证即可提供工具和可调配置', () => {
   const world = new SurfingWorld(context());
-  expect(world.tools().map(x=>x.name)).toEqual(['surfing_read_page','surfing_read_bili','surfing_search_bili',
-    'surfing_read_bili_info','surfing_read_bili_comments']);
+  expect(world.tools().map(x=>x.name)).toEqual(['surfing_read_page','surfing_read_bili','surfing_search_bili','surf_all']);
   const fields = SURFING_CONFIG_GROUPS.flatMap(group => Object.keys(group.schema.properties));
   expect(fields).toContain('worlds.surfing.reading.maxResponseEstimatedTokens');
   expect(fields).toContain('worlds.surfing.bili.maxSubtitleRetries');
@@ -119,8 +118,8 @@ test('长简介在预算内从缓存续读，无字幕也能完整恢复原文',
   const ctx = context(); ctx.cfg.reading.maxResponseEstimatedTokens = 1024;
   const fixture = new PlatformFixture(); fixture.description = '简介原文🌌\n'.repeat(1500); fixture.emptyResponses = Infinity;
   const world = new SurfingWorld(ctx, new FixtureClient(fixture));
-  const tool = world.tools().find(tool => tool.name === 'surfing_read_bili_info')!;
-  const call = { role: 'test', log: {} as never }; const args = { bvid: 'BV1aa411a7aa' };
+  const tool = world.tools().find(tool => tool.name === 'surfing_read_bili')!;
+  const call = { role: 'test', log: {} as never }; const args = { bvid: 'BV1aa411a7aa', mode: 'info' };
   try {
     let page = result(await tool.handler(args, call)); let content = page.content;
     expect(page.failed).toBe(false); expect(page.nextCursor).toBeTruthy();
@@ -139,8 +138,8 @@ test('长评论先读完缓存原文，再取得平台下一批；重放边界�
   const ctx = context(); ctx.cfg.reading.maxResponseEstimatedTokens = 1024;
   const fixture = new PlatformFixture(); fixture.commentBody = '评论正文🌌\n'.repeat(1200);
   const world = new SurfingWorld(ctx, new FixtureClient(fixture));
-  const tool = world.tools().find(tool => tool.name === 'surfing_read_bili_comments')!;
-  const args = { bvid: 'BV1aa411a7aa' }; const call = { role: 'test', log: {} as never };
+  const tool = world.tools().find(tool => tool.name === 'surfing_read_bili')!;
+  const args = { bvid: 'BV1aa411a7aa', mode: 'comments' }; const call = { role: 'test', log: {} as never };
   try {
     let page = result(await tool.handler(args, call)); let firstBatch = page.content;
     let boundary: string | undefined;
@@ -162,8 +161,8 @@ test('长评论先读完缓存原文，再取得平台下一批；重放边界�
 
 test('评论边界并发续读只取得一份后续材料', async () => {
   const fixture = new PlatformFixture(); const world = new SurfingWorld(context(), new FixtureClient(fixture));
-  const tool = world.tools().find(tool => tool.name === 'surfing_read_bili_comments')!;
-  const args = { bvid: 'BV1aa411a7aa' }; const call = { role: 'test', log: {} as never };
+  const tool = world.tools().find(tool => tool.name === 'surfing_read_bili')!;
+  const args = { bvid: 'BV1aa411a7aa', mode: 'comments' }; const call = { role: 'test', log: {} as never };
   try {
     const first = result(await tool.handler(args, call));
     const [left, right] = (await Promise.all([tool.handler({ ...args, cursor: first.nextCursor }, call),
@@ -175,17 +174,18 @@ test('评论边界并发续读只取得一份后续材料', async () => {
 
 test('评论游标绑定视频、排序、根评论和工具；非法参数不发请求', async () => {
   const fixture = new PlatformFixture(); const world = new SurfingWorld(context(), new FixtureClient(fixture));
-  const comments = world.tools().find(tool => tool.name === 'surfing_read_bili_comments')!;
-  const info = world.tools().find(tool => tool.name === 'surfing_read_bili_info')!;
-  const args = { bvid: 'BV1aa411a7aa' }; const call = { role: 'test', log: {} as never };
+  const comments = world.tools().find(tool => tool.name === 'surfing_read_bili')!;
+  const args = { bvid: 'BV1aa411a7aa', mode: 'comments' }; const call = { role: 'test', log: {} as never };
   try {
     const first = result(await comments.handler(args, call)); const requests = fixture.requests;
-    for (const changed of [{ bvid: 'BV1aa411a7ab' }, { ...args, sort: 'time' }, { ...args, root: '123' }]) {
+    for (const changed of [{ ...args, bvid: 'BV1aa411a7ab' }, { ...args, sort: 'time' }, { ...args, root: '123' }]) {
       const failure = result(await comments.handler({ ...changed, cursor: first.nextCursor }, call));
       expect(failure.failed).toBe(true); expect(failure.text).toContain('不匹配');
     }
-    expect(result(await info.handler({ ...args, cursor: first.nextCursor }, call)).failed).toBe(true);
-    for (const changed of [{ root: 123 }, { root: '../bad' }, { sort: 'unknown' }, { root: '123', sort: 'hot' }])
+    expect(result(await comments.handler({ ...args, mode: 'info', cursor: first.nextCursor }, call)).failed).toBe(true);
+    expect(result(await comments.handler({ bvid: args.bvid, cursor: first.nextCursor }, call)).failed).toBe(true);
+    for (const changed of [{ root: 123 }, { root: '../bad' }, { sort: 'unknown' }, { root: '123', sort: 'hot' },
+      { mode: 'unknown' }, { mode: 'info', sort: 'hot' }, { mode: undefined, root: '123' }, { cid: 200 }])
       expect(result(await comments.handler({ ...args, ...changed }, call)).failed).toBe(true);
     expect(fixture.requests).toBe(requests);
   } finally { await world.stop(); }
@@ -237,8 +237,9 @@ test.each([
   { name: 'surfing_read_page', args: { url: 'https://example.org/article' } },
   { name: 'surfing_read_bili', args: { bvid: 'BV1aa411a7aa' } },
   { name: 'surfing_search_bili', args: { query: '竞赛' } },
-  { name: 'surfing_read_bili_info', args: { bvid: 'BV1aa411a7aa' } },
-  { name: 'surfing_read_bili_comments', args: { bvid: 'BV1aa411a7aa' } },
+  { name: 'surfing_read_bili', args: { bvid: 'BV1aa411a7aa', mode: 'info' } },
+  { name: 'surfing_read_bili', args: { bvid: 'BV1aa411a7aa', mode: 'comments' } },
+  { name: 'surf_all', args: { query: '竞赛' } },
 ])('interrupt 取消 $name 的在途读取，回执之后投递新事件', async ({ name, args }) => {
   let waiting = false;
   class WaitingFixture extends PlatformFixture {

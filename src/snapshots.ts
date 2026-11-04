@@ -8,13 +8,17 @@ export type RecordValue = Record<string, string | number | boolean>;
 export interface LinkSpan { id: string; from: number; to: number }
 export type Unit = { kind: 'text'; text: string; links?: LinkSpan[]; startSec?: number; endSec?: number }
   | { kind: 'part' | 'result'; value: RecordValue };
+export interface TiebaPost { forum: string; title: string; summary: string; url: string }
+/** Unseen posts of the fetched upstream page plus the position for the next one. */
+export interface TiebaMore { id: string; query: string; posts: TiebaPost[]; page: number; hasMore: boolean }
 export interface Material {
-  kind: 'page' | 'bili' | 'search' | 'bili-info' | 'bili-comments'; key: string; source: string; title: string;
+  kind: 'page' | 'bili' | 'search' | 'bili-info' | 'bili-comments' | 'site-search'; key: string; source: string; title: string;
   scope: Record<string, string | number | boolean>;
   units: Unit[];
   links?: Record<string, string>;
   sourceTruncated?: boolean; truncationReason?: string;
   nextBatch?: number;
+  more?: TiebaMore;
   sentenceTimes?: Array<{ from: number; to: number }>;
   metadataTruncated?: string[];
 }
@@ -123,8 +127,9 @@ export class SnapshotCache {
     const header = [material.kind === 'bili' ? `视频：${line(material.title)}`
       : material.kind === 'bili-info' ? `视频简介：${line(material.title)}`
       : material.kind === 'bili-comments' ? `视频评论：${line(material.title)}`
-      : material.kind === 'search' ? `B站搜索：${line(scope.query)}（第${scope.page}页）` : `网页：${line(material.title)}`];
-    if (material.kind === 'page') header.push(`pageRef: ${this.encode({ id: start.id, unit: 0, offset: 0 })}`);
+      : material.kind === 'search' ? `B站搜索：${line(scope.query)}（第${scope.page}页）`
+      : material.kind === 'site-search' ? line(material.title) : `网页：${line(material.title)}`];
+    if (material.kind === 'page' || (material.kind === 'site-search' && material.links)) header.push(`pageRef: ${this.encode({ id: start.id, unit: 0, offset: 0 })}`);
     if (material.kind === 'bili') header.push(`P${scope.page}：${line(scope.part)}；UP主：${line(scope.author)}；${scope.isAi ? 'AI' : '人工'}字幕（${line(scope.language)}）`);
     if (material.kind === 'bili-info') header.push(`BV: ${scope.bvid}；UP主：${line(scope.author)}`);
     if (material.kind === 'bili-comments') header.push(`BV: ${scope.bvid}；${scope.root
@@ -142,11 +147,12 @@ export class SnapshotCache {
       content = '本次未取得可读取的评论。';
     let failure: string | undefined;
     const current = { ...start };
-    const hasMore = () => current.unit < material.units.length || (material.nextBatch !== undefined && !material.sourceTruncated);
+    const hasMore = () => current.unit < material.units.length
+      || (material.kind !== 'site-search' && material.nextBatch !== undefined && !material.sourceTruncated);
     const finish = () => {
       const footer = [...notices, ...(hasMore() ? [`续读 cursor: ${this.encode(current)}`] : [])];
       const title = failure ? '[tool failed] ' + failure : header.join('\n');
-      return title + '\n\n' + content + (footer.length ? '\n\n' + footer.join('\n') : '');
+      return (title ? title + '\n\n' : '') + content + (footer.length ? '\n\n' + footer.join('\n') : '');
     };
     const cap = config.reading.maxResponseEstimatedTokens;
     if (estimateTokens(finish()) > cap) throw new ReadError('source_limit', '来源信息超过返回上限，无法生成完整回执。');
@@ -214,10 +220,12 @@ export class SnapshotCache {
     return { key: snapshot.material.key, cursor: cursor ?? pageRef };
   }
 
-  link(pageRef: string, linkId: string, config: SurfingConfigSection): string {
-    const { snapshot } = this.pageSnapshot(pageRef, config);
-    const url = snapshot.material.links?.[linkId];
-    if (!url) throw new ReadError('invalid_input', '该网页快照没有此链接编号，请使用正文中的编号。');
+  link(pageRef: string, linkId: string, config: SurfingConfigSection): string | { more: TiebaMore; key: string; cursor: string } {
+    const { id, snapshot: { material } } = this.pageSnapshot(pageRef, config);
+    if (material.more?.id === linkId)
+      return { more: material.more, key: material.key, cursor: this.encode({ id, unit: material.units.length, offset: 0 }) };
+    const url = material.links?.[linkId];
+    if (!url) throw new ReadError('invalid_input', '该快照没有此链接编号，请使用回执中的编号。');
     return url;
   }
 
@@ -225,9 +233,9 @@ export class SnapshotCache {
     this.trim(config.cache.maxBytes);
     const position = this.decode(pageRef);
     const snapshot = this.snapshots.get(position.id);
-    if (!snapshot) throw new ReadError('cursor_expired', '网页引用已到期或被释放，请重新读取。');
-    if (position.unit !== 0 || position.offset !== 0 || snapshot.material.kind !== 'page')
-      throw new ReadError('cursor_mismatch', '需要网页回执中的 pageRef。');
+    if (!snapshot) throw new ReadError('cursor_expired', '引用已到期或被释放，请重新读取或搜索。');
+    if (position.unit !== 0 || position.offset !== 0 || !['page', 'site-search'].includes(snapshot.material.kind))
+      throw new ReadError('cursor_mismatch', '需要网页或搜索回执中的 pageRef。');
     this.snapshots.delete(position.id);
     this.snapshots.set(position.id, snapshot);
     return { id: position.id, snapshot };
