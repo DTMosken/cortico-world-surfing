@@ -81,7 +81,7 @@ function material(query: string, title: string, groups: Group[], labelled: boole
   });
   const last = units.at(-1);
   if (last?.kind === 'text') last.text = last.text.trimEnd();
-  return { kind: 'site-search', key: 'site-search:' + query, source: 'surf_all', title, scope: { kind: 'site-search', query }, units,
+  return { kind: 'site-search', key: 'site-search:' + query, source: 'surf_all', title, scope: {}, units,
     ...(Object.keys(links).length ? { links } : {}), ...(more ? { more, nextBatch: more.page + 1 } : {}) };
 }
 

@@ -150,7 +150,7 @@ pageRef: search_demo_1
 破防：网络流行语，是破除防御的简称。 [L4]
 ```
 
-B站候选把 BV号交给 `surfing_read_bili`，不返回搜索游标。继续翻 B站结果时使用 `surfing_search_bili({ query, cursor })`。其余结果的编号只在所属 `pageRef` 内有效，新回执不改变旧回执中编号的含义。
+B站候选把 BV号交给 `surfing_read_bili`，不返回搜索游标。想继续搜 B站时，先调用 `surfing_search_bili({ query })`，再用它自己回执中的 `cursor` 续搜，`surf_all` 不提供这个 `cursor`。其余结果的编号只在所属 `pageRef` 内有效，新回执不改变旧回执中编号的含义。
 
 **只查部分来源**
 
@@ -228,7 +228,41 @@ pageRef: tieba_demo_2
   更多贴吧结果 [L3]
   ```
 
-百科只给词条摘要和原文编号，不做远端分页。回执沿用单次返回上限；超出时带续读 `cursor`，用回执的 `pageRef` 和该 `cursor` 调用 `surfing_read_page`。
+百科只给词条摘要和原文编号，不做远端分页。
+
+**回执超出单次返回上限**
+
+返回上限较小而材料较长时，回执末尾带续读 `cursor`：
+
+```text
+「破防」
+pageRef: search_demo_1
+
+【B站】
+· “破防”是什么意思？｜示例UP主｜02:35｜BVxxxxxxxxxx
+
+【贴吧】
+· （示例游戏吧）这关把我打破防了 [L1]
+
+续读 cursor: search_demo_cursor
+```
+
+```js
+surfing_read_page({ pageRef: "search_demo_1", cursor: "search_demo_cursor" })
+```
+
+```text
+「破防」
+pageRef: search_demo_1
+
+· （示例游戏吧）终于通关了，昨天差点破防 [L2]
+更多贴吧结果 [L3]
+
+【百度百科】
+破防：网络流行语，是破除防御的简称。 [L4]
+```
+
+`cursor` 只续读这份已取得的回执，不发起新的搜索。编号不变，要推进贴吧搜索时打开“更多贴吧结果”的 `[L#]`。
 
 ## 字幕重试
 

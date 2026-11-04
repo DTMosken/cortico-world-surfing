@@ -23,7 +23,7 @@ const videoTarget = {
 };
 export const SURFING_TOOL_DECLS: ToolSpec[] = [
   {
-    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页正文：提供 URL 初读，或用原页 pageRef 与 linkId 打开正文编号链接；用目标页 pageRef 与 cursor 续读。打开链接时不带 cursor。surf_all 回执的编号也用 pageRef 与 linkId：帖子和词条编号打开原文，“更多贴吧结果”编号返回下一批结果。返回预算内原文，仅接受公开域名，支持 URL 章节锚点。',
+    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页和 surf_all 回执。url 初读网页；pageRef 与 linkId 打开回执中的编号，网页链接、帖子和词条打开原文，“更多贴吧结果”返回下一批结果，不带 cursor；pageRef 与 cursor 续读当前材料。返回预算内原文，仅接受公开域名，支持 URL 章节锚点。',
     parameters: { type: 'object', additionalProperties: false, oneOf: [
       { required: ['url'], not: { required: ['linkId'] } },
       { required: ['pageRef'], not: { required: ['linkId'] } },
@@ -35,7 +35,7 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
     } },
   },
   {
-    name: 'surfing_read_bili', tags: ['read'], description: '匿名读取 B站视频材料，提供 BV、aid 或视频链接。mode 默认 subtitles，读人工或 AI 字幕原文，可用 cid 或 URL 中的 p 选择分P，未取得字幕不代表无音频；info 读简介、标题、UP主和分P目录；comments 读评论原文、作者、时间、点赞数和 rpid，默认热门，含置顶和楼中楼预览，用 root 读取楼中楼。'
+    name: 'surfing_read_bili', tags: ['read'], description: '匿名读取 B站视频材料，提供 BV、aid 或视频链接。mode 默认 subtitles，读人工或 AI 字幕原文，可用 cid 或 URL 中的 p 选择分P，未取得字幕不代表无音频；info 读简介、标题、UP主和分P目录；comments 读评论原文、作者、时间、点赞数和 rpid，含置顶和楼中楼预览。'
       + '沿用目标、mode、sort、root 和 cursor 续读。',
     parameters: { type: 'object', additionalProperties: false, anyOf: [{ required: ['bvid'] }, { required: ['aid'] }, { required: ['url'] }],
       not: { required: ['sort', 'root'] }, properties: {
@@ -119,9 +119,9 @@ export class SurfingWorld implements World {
               key = pageKey(target);
               material = await this.pages.read(target, operation, config.network.maxDownloadBytes);
             } else {
-              const next = await this.batchCursor(target.cursor, target.key, config, operation,
+              key = target.key;
+              cursor = await this.batchCursor(target.cursor, key, config, operation,
                 (_page, op) => continueTieba(target.more, config.search.maxResults, op));
-              ({ key, cursor } = this.cache.pageCursor(next, undefined, config));
             }
           } else ({ key, cursor } = this.cache.pageCursor(args.pageRef, cursor, config));
         } else {

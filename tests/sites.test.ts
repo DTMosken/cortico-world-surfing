@@ -121,7 +121,8 @@ test('单源失败只留短状态；仅 B站候选和无匹配都不生成 pageR
   fixture.pages[1] = { posts: [], hasMore: 0 };
   expect((await call('surf_all', { query: '无匹配', sources: ['tieba', 'baike'] })).text)
     .toBe('【贴吧】未找到匹配结果。\n\n【百度百科】未找到匹配结果。');
-  expect((await call('surf_all', { query: '无匹配', sources: ['moegirl'] })).text).toBe('【萌娘百科】访问受限。');
+  fixture.fail.delete('zh.moegirl.org.cn');
+  expect((await call('surf_all', { query: '无匹配', sources: ['moegirl'] })).text).toBe('【萌娘百科】未找到匹配结果。');
   await world.stop();
 });
 
