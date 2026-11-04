@@ -10,7 +10,7 @@ var SURFING_DEFAULTS = {
 var SURFING_CONFIG_GROUP = {
   id: "world:surfing",
   owner: "world:surfing",
-  schema: { type: "object", title: "\u9605\u8BFB\u8FD4\u56DE\u91CF", properties: {
+  schema: { type: "object", title: "\u9605\u8BFB\u4E0E\u5B57\u5E55", properties: {
     "worlds.surfing.reading.maxResponseEstimatedTokens": {
       type: "integer",
       title: "\u5355\u6B21\u8FD4\u56DE\u4E0A\u9650",
@@ -107,11 +107,14 @@ var errorText = (error) => error instanceof Error ? error.message : "\u64CD\u4F5
 async function mount(ctx) {
   const { ui } = ctx;
   const state = await ctx.invoke("state");
-  const sheet = ui.sheet({ title: "\u914D\u7F6E", en: "config", desc: "\u4FEE\u6539\u540E\u81EA\u52A8\u4FDD\u5B58\uFF0C\u65E0\u9700\u91CD\u542F\u3002" });
-  const saved = ui.msgline("");
+  const layout = ui.h("div");
+  layout.style.cssText = "display:grid;gap:20px;max-width:960px;margin:auto";
   let saves = Promise.resolve();
   for (const group of SURFING_CONFIG_GROUPS) {
-    sheet.body.append(ui.h("div", "tsection", group.schema.title));
+    const sheet = group === SURFING_LIMITS_CONFIG_GROUP ? ui.foldSheet("surfing-limits", { title: group.schema.title, defaultOpen: false }) : ui.sheet({ title: group.schema.title });
+    const grid = ui.h("div");
+    grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px 24px";
+    const saved = ui.msgline("");
     for (const [path, property] of Object.entries(group.schema.properties)) {
       const scale = property["x-scale"] ?? 1;
       const input = ui.input({ type: "number", value: String(state.values[path] / scale), onChange: (value) => {
@@ -128,14 +131,17 @@ async function mount(ctx) {
       } });
       input.min = String(property.minimum / scale);
       input.max = String(property.maximum / scale);
-      const field = ui.h("div", "tfield");
-      field.append(input, ui.h("span", "tunit", property["x-suffix"]));
-      const row = ui.h("div", "trow");
-      row.append(ui.h("span", "tlabel", property.title), field, ui.h("span", "tdesc", property.description));
-      sheet.body.append(row);
+      const field = ui.field(`${property.title}\uFF08${property["x-suffix"]}\uFF09`, input);
+      const note = ui.h("small", "muted", property.description);
+      note.id = path;
+      input.setAttribute("aria-describedby", note.id);
+      const row = ui.h("div");
+      row.append(field, note);
+      grid.append(row);
     }
+    sheet.body.append(grid, saved);
+    layout.append(sheet.el);
   }
-  sheet.body.append(saved);
   const anchor = (text, href) => {
     const link = ui.h("a", null, text);
     link.href = href;
@@ -186,23 +192,23 @@ async function mount(ctx) {
     ["\u5728\u63A7\u5236\u53F0\u5DE6\u4FA7\u9009\u62E9\u300COverview\u300D\uFF0C\u70B9\u51FB\u300CUsage\u300D\u6807\u7B7E\u3002"],
     ["\u70B9\u51FB\u300CDevelopment\u300D\u6807\u7B7E\u53F3\u4E0A\u89D2\u7684\u300C\u2026\u300D\uFF0C\u590D\u5236 API Key\u3002"],
     ["\u70B9\u51FB\u300C\u6253\u5F00\u5BC6\u94A5\u6587\u4EF6\u300D\uFF0C\u5C06 Key \u586B\u5728 ", secret, " \u540E\u9762\uFF0C\u4E0D\u52A0\u5F15\u53F7\uFF0C\u4FDD\u5B58\u6587\u4EF6\u3002"],
-    ["\u70B9\u51FB\u300C\u5237\u65B0\u5BC6\u94A5\u72B6\u6001\u300D\uFF0C\u72B6\u6001\u53D8\u4E3A\u300CAPI Key \u5DF2\u914D\u7F6E\u300D\u3002\u6E05\u7A7A Key \u7684\u503C\u5E76\u4FDD\u5B58\u53EF\u6062\u590D\u514D Key \u8C03\u7528\u3002"]
+    ["\u4FDD\u5B58\u540E\uFF0C\u4E0B\u6B21\u8FDC\u7A0B\u8BFB\u53D6\u4F7F\u7528\u8BE5 Key \u7684\u989D\u5EA6\u3002\u70B9\u51FB\u300C\u5237\u65B0\u5BC6\u94A5\u72B6\u6001\u300D\u53EF\u67E5\u770B\u914D\u7F6E\u72B6\u6001\u3002\u6E05\u7A7A Key \u7684\u503C\u5E76\u4FDD\u5B58\u53EF\u6062\u590D\u514D Key \u8C03\u7528\u3002"]
   ]) {
     const step = ui.h("li");
     step.append(...parts);
     steps.append(step);
   }
-  const limits = ui.h("div", "tsecdesc");
+  const limits = ui.h("p", "muted");
   limits.append("\u514D Key \u548C\u514D\u8D39 Key \u7684\u989D\u5EA6\u4E0D\u540C\uFF0C\u5F53\u524D\u9650\u5236\u89C1", anchor("Microlink \u989D\u5EA6\u8BF4\u660E", "https://microlink.io/docs/api/basics/rate-limit"), "\u3002");
-  sheet.body.append(
-    ui.h("div", "tsection", "Microlink \u8FDC\u7A0B\u6E32\u67D3\uFF08\u53EF\u9009\uFF09"),
-    ui.h("div", "tsecdesc", "\u672C\u673A Chromium \u4E0D\u53EF\u7528\u65F6\uFF0C\u5C06\u7F51\u9875 URL \u4EA4\u7ED9 Microlink \u6E32\u67D3\u3002API Key \u53EF\u9009\uFF1A\u7559\u7A7A\u4F7F\u7528\u514D Key \u63A5\u53E3\uFF0C\u914D\u7F6E\u540E\u4F7F\u7528\u8BE5 Key \u7684\u989D\u5EA6\uFF0C\u4E0B\u6B21\u8FDC\u7A0B\u8BFB\u53D6\u751F\u6548\u3002"),
-    keyBar,
-    ui.h("div", "tsecdesc", "\u53D6\u5F97 API Key\uFF1A"),
-    steps,
-    limits
-  );
-  ctx.root.replaceChildren(sheet.el);
+  const microlink = ui.sheet({
+    title: "Microlink \u8FDC\u7A0B\u6E32\u67D3",
+    desc: "\u672C\u673A Chromium \u4E0D\u53EF\u7528\u65F6\uFF0C\u5C06\u7F51\u9875 URL \u4EA4\u7ED9 Microlink \u6E32\u67D3\u3002API Key \u53EF\u9009\uFF0C\u7559\u7A7A\u4F7F\u7528\u514D Key \u989D\u5EA6\u3002"
+  });
+  const help = ui.foldSheet("surfing-microlink-key", { title: "\u5982\u4F55\u53D6\u5F97 API Key", defaultOpen: false });
+  help.body.append(steps, limits);
+  microlink.body.append(keyBar, help.el);
+  layout.append(microlink.el);
+  ctx.root.replaceChildren(layout);
 }
 var client_default = { panels: { config: { mount } } };
 export {

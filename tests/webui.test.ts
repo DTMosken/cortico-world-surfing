@@ -7,8 +7,8 @@ import type { WorldContext } from 'cortico/world.ts';
 import { secretReader } from 'cortico/core/secrets.ts';
 import type { WebUi, WebUiPanelContext } from 'cortico/web/shared/client-panel.ts';
 import { h } from 'cortico/web/client/ui/dom.ts';
-import { input } from 'cortico/web/client/ui/fields.ts';
-import { button, msgline, pill, rowbar, sheet } from 'cortico/web/client/ui/sheet.ts';
+import { field, input } from 'cortico/web/client/ui/fields.ts';
+import { button, foldSheet, msgline, pill, rowbar, sheet } from 'cortico/web/client/ui/sheet.ts';
 import { SURFING_DEFAULTS, SURFING_MICROLINK_SECRET, type SurfingConfigSection } from '../src/config.ts';
 import { SurfingWorld } from '../src/world.ts';
 import client from '../src/webui/client.ts';
@@ -39,9 +39,11 @@ async function withPanel(run: (panel: {
   const ui = {
     h: (tag, cls, text) => h(doc, tag, cls, text),
     sheet: opts => sheet(doc, opts),
+    foldSheet: (id, opts) => foldSheet(doc, { get: (_, fallback) => fallback, set() {} }, signal, id, opts),
+    field: (label, control) => field(doc, label, control),
     button: (text, opts) => button(doc, signal, text, opts), msgline: (text, bad) => msgline(doc, text, bad),
     pill: (text, tone) => pill(doc, text, tone), rowbar: () => rowbar(doc), input: opts => input(doc, signal, opts),
-  } satisfies Pick<WebUi, 'h' | 'sheet' | 'button' | 'msgline' | 'pill' | 'rowbar' | 'input'>;
+  } satisfies Pick<WebUi, 'h' | 'sheet' | 'foldSheet' | 'field' | 'button' | 'msgline' | 'pill' | 'rowbar' | 'input'>;
   const root = doc.querySelector<HTMLElement>('#root')!;
   const invoke = <T>(method: string, args: unknown[] = []) => world.webUi().invoke!('config', method, args) as Promise<T>;
   const ctx = { root, ui, invoke, async refresh() {} } as WebUiPanelContext;
@@ -52,9 +54,9 @@ async function withPanel(run: (panel: {
 }
 
 test('配置面板合并全部设置，Microlink 步骤写明 API Key 的控制台路径', () => withPanel(async ({ root }) => {
-  const sections = [...root.querySelectorAll('.tsection')].map(element => element.textContent);
-  expect(sections).toEqual(['阅读返回量', '获取与缓存限制', 'Microlink 远程渲染（可选）']);
-  expect(root.querySelectorAll('.trow')).toHaveLength(9);
+  const sections = [...root.querySelectorAll('h3')].map(element => element.textContent);
+  expect(sections).toEqual(['阅读与字幕', '获取与缓存限制', 'Microlink 远程渲染', '如何取得 API Key']);
+  expect(root.querySelectorAll('input[type=number]')).toHaveLength(9);
   expect(root.querySelector('a')?.href).toBe('https://dashboard.microlink.io/signup');
   const steps = [...root.querySelectorAll('ol li')].map(element => element.textContent);
   expect(steps).toHaveLength(5);
@@ -65,17 +67,16 @@ test('配置面板合并全部设置，Microlink 步骤写明 API Key 的控制�
 }));
 
 test('数值按显示单位编辑，按存储单位校验并写回', () => withPanel(async ({ root, cfg, persisted, window }) => {
-  const row = (title: string) => [...root.querySelectorAll('.trow')].find(element => element.querySelector('.tlabel')?.textContent === title)!;
+  const control = (label: string) => [...root.querySelectorAll('input')].find(input => input.labels?.[0]?.textContent === label)!;
   const edit = (field: HTMLInputElement, value: string) => { field.value = value; field.dispatchEvent(new window.Event('change')); };
-  const timeout = row('单次读取超时').querySelector('input')!;
+  const timeout = control('单次读取超时（秒）');
   expect(timeout.value).toBe('20');
-  expect(row('单次读取超时').querySelector('.tunit')?.textContent).toBe('秒');
   edit(timeout, '30');
   await vi.waitFor(() => expect(root.textContent).toContain('已保存：单次读取超时'));
   expect(cfg.network.requestTimeoutMs).toBe(30000);
   expect(persisted).toEqual([{ network: { requestTimeoutMs: 30000 } }]);
 
-  const tokens = row('单次返回上限').querySelector('input')!;
+  const tokens = control('单次返回上限（估算 token）');
   edit(tokens, '1');
   await vi.waitFor(() => expect(root.querySelector('.msgline.bad')?.textContent).toContain('单次返回上限'));
   expect(cfg.reading.maxResponseEstimatedTokens).toBe(SURFING_DEFAULTS.reading.maxResponseEstimatedTokens);

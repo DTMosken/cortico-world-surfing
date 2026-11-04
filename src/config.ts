@@ -20,7 +20,7 @@ export const SURFING_DEFAULTS: SurfingConfigSection = {
 
 export const SURFING_CONFIG_GROUP: ConfigGroup = {
   id: 'world:surfing', owner: 'world:surfing',
-  schema: { type: 'object', title: '阅读返回量', properties: {
+  schema: { type: 'object', title: '阅读与字幕', properties: {
     'worlds.surfing.reading.maxResponseEstimatedTokens': {
       type: 'integer', title: '单次返回上限', minimum: 1024, maximum: 32768,
       'x-suffix': '估算 token', 'x-hot': true,

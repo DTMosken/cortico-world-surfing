@@ -1,5 +1,5 @@
 import type { WebUiClientBundle, WebUiPanelContext } from 'cortico/web/shared/client-panel.ts';
-import { SURFING_CONFIG_GROUPS, SURFING_MICROLINK_SECRET } from '../config.ts';
+import { SURFING_CONFIG_GROUPS, SURFING_LIMITS_CONFIG_GROUP, SURFING_MICROLINK_SECRET } from '../config.ts';
 
 interface ConfigState { values: Record<string, number>; keySet: boolean }
 
@@ -8,12 +8,16 @@ const errorText = (error: unknown): string => error instanceof Error ? error.mes
 async function mount(ctx: WebUiPanelContext): Promise<void> {
   const { ui } = ctx;
   const state = await ctx.invoke<ConfigState>('state');
-  const sheet = ui.sheet({ title: '配置', en: 'config', desc: '修改后自动保存，无需重启。' });
-
-  const saved = ui.msgline('');
+  const layout = ui.h('div');
+  layout.style.cssText = 'display:grid;gap:20px;max-width:960px;margin:auto';
   let saves: Promise<void> = Promise.resolve();
   for (const group of SURFING_CONFIG_GROUPS) {
-    sheet.body.append(ui.h('div', 'tsection', group.schema.title));
+    const sheet = group === SURFING_LIMITS_CONFIG_GROUP
+      ? ui.foldSheet('surfing-limits', { title: group.schema.title, defaultOpen: false })
+      : ui.sheet({ title: group.schema.title });
+    const grid = ui.h('div');
+    grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px 24px';
+    const saved = ui.msgline('');
     for (const [path, property] of Object.entries(group.schema.properties)) {
       const scale = property['x-scale'] ?? 1;
       const input = ui.input({ type: 'number', value: String(state.values[path]! / scale), onChange: value => {
@@ -26,14 +30,17 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
       } });
       input.min = String(property.minimum! / scale);
       input.max = String(property.maximum! / scale);
-      const field = ui.h('div', 'tfield');
-      field.append(input, ui.h('span', 'tunit', property['x-suffix']));
-      const row = ui.h('div', 'trow');
-      row.append(ui.h('span', 'tlabel', property.title), field, ui.h('span', 'tdesc', property.description));
-      sheet.body.append(row);
+      const field = ui.field(`${property.title}（${property['x-suffix']}）`, input);
+      const note = ui.h('small', 'muted', property.description);
+      note.id = path;
+      input.setAttribute('aria-describedby', note.id);
+      const row = ui.h('div');
+      row.append(field, note);
+      grid.append(row);
     }
+    sheet.body.append(grid, saved);
+    layout.append(sheet.el);
   }
-  sheet.body.append(saved);
 
   const anchor = (text: string, href: string): HTMLAnchorElement => {
     const link = ui.h('a', null, text);
@@ -68,20 +75,23 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     ['在控制台左侧选择「Overview」，点击「Usage」标签。'],
     ['点击「Development」标签右上角的「…」，复制 API Key。'],
     ['点击「打开密钥文件」，将 Key 填在 ', secret, ' 后面，不加引号，保存文件。'],
-    ['点击「刷新密钥状态」，状态变为「API Key 已配置」。清空 Key 的值并保存可恢复免 Key 调用。'],
+    ['保存后，下次远程读取使用该 Key 的额度。点击「刷新密钥状态」可查看配置状态。清空 Key 的值并保存可恢复免 Key 调用。'],
   ]) {
     const step = ui.h('li');
     step.append(...parts);
     steps.append(step);
   }
-  const limits = ui.h('div', 'tsecdesc');
+  const limits = ui.h('p', 'muted');
   limits.append('免 Key 和免费 Key 的额度不同，当前限制见', anchor('Microlink 额度说明', 'https://microlink.io/docs/api/basics/rate-limit'), '。');
-  sheet.body.append(
-    ui.h('div', 'tsection', 'Microlink 远程渲染（可选）'),
-    ui.h('div', 'tsecdesc', '本机 Chromium 不可用时，将网页 URL 交给 Microlink 渲染。API Key 可选：留空使用免 Key 接口，配置后使用该 Key 的额度，下次远程读取生效。'),
-    keyBar, ui.h('div', 'tsecdesc', '取得 API Key：'), steps, limits,
-  );
-  ctx.root.replaceChildren(sheet.el);
+  const microlink = ui.sheet({
+    title: 'Microlink 远程渲染',
+    desc: '本机 Chromium 不可用时，将网页 URL 交给 Microlink 渲染。API Key 可选，留空使用免 Key 额度。',
+  });
+  const help = ui.foldSheet('surfing-microlink-key', { title: '如何取得 API Key', defaultOpen: false });
+  help.body.append(steps, limits);
+  microlink.body.append(keyBar, help.el);
+  layout.append(microlink.el);
+  ctx.root.replaceChildren(layout);
 }
 
 export default { panels: { config: { mount } } } satisfies WebUiClientBundle;

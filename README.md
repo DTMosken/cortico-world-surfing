@@ -30,7 +30,7 @@
 
 无需 API Key 即可使用 Microlink 后备。配置 Key 后使用认证接口及该 Key 的额度；Key 仅发送给 Microlink，不进入模型回执。
 
-在网上冲浪的「配置」页找到「Microlink 远程渲染（可选）」，点击「打开密钥文件」，编辑部署目录的 `.env`：
+在网上冲浪的「配置」页找到「Microlink 远程渲染」，点击「打开密钥文件」，编辑部署目录的 `.env`：
 
 ```dotenv
 CORTICO_SURFING_MICROLINK_API_KEY=
