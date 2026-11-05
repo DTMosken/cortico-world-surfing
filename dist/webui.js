@@ -54,7 +54,7 @@ var SURFING_CONFIG_GROUP = {
 var SURFING_SEARCH_CONFIG_GROUP = {
   id: "world:surfing:search",
   owner: "world:surfing",
-  schema: { type: "object", title: "\u7AD9\u70B9\u641C\u7D22", properties: {
+  schema: { type: "object", title: "\u7AD9\u70B9\u641C\u7D22", description: "surfing_search_bili \u4E0D\u53D7 B\u7AD9\u5F00\u5173\u5F71\u54CD\u3002", properties: {
     "worlds.surfing.search.maxResults": {
       type: "integer",
       title: "\u6BCF\u6E90\u663E\u793A\u6761\u6570",
@@ -62,12 +62,12 @@ var SURFING_SEARCH_CONFIG_GROUP = {
       maximum: 10,
       "x-suffix": "\u6761",
       "x-hot": true,
-      description: "surf_all \u7684 B\u7AD9\u548C\u8D34\u5427\u6BCF\u6279\u663E\u793A\u6761\u6570\uFF1B\u8D34\u5427\u672A\u663E\u793A\u7684\u6761\u76EE\u7559\u7ED9\u201C\u66F4\u591A\u8D34\u5427\u7ED3\u679C\u201D\u3002\u4E0B\u6B21\u8C03\u7528\u751F\u6548\u3002"
+      description: "\u4F5C\u7528\u4E8E B\u7AD9\u548C\u8D34\u5427\uFF0C\u4E0B\u6B21\u8C03\u7528\u751F\u6548\u3002"
     },
-    "worlds.surfing.search.bili": { type: "boolean", title: "B\u7AD9", "x-hot": true, description: "\u5173\u95ED\u540E surf_all \u4E0D\u8BF7\u6C42\u6B64\u6765\u6E90\uFF0Csurfing_search_bili \u4E0D\u53D7\u5F71\u54CD\u3002" },
-    "worlds.surfing.search.tieba": { type: "boolean", title: "\u8D34\u5427", "x-hot": true, description: "\u5173\u95ED\u540E surf_all \u4E0D\u8BF7\u6C42\u6B64\u6765\u6E90\u3002" },
-    "worlds.surfing.search.moegirl": { type: "boolean", title: "\u840C\u5A18\u767E\u79D1", "x-hot": true, description: "\u5173\u95ED\u540E surf_all \u4E0D\u8BF7\u6C42\u6B64\u6765\u6E90\u3002" },
-    "worlds.surfing.search.baike": { type: "boolean", title: "\u767E\u5EA6\u767E\u79D1", "x-hot": true, description: "\u5173\u95ED\u540E surf_all \u4E0D\u8BF7\u6C42\u6B64\u6765\u6E90\u3002" }
+    "worlds.surfing.search.bili": { type: "boolean", title: "B\u7AD9", "x-hot": true },
+    "worlds.surfing.search.tieba": { type: "boolean", title: "\u8D34\u5427", "x-hot": true },
+    "worlds.surfing.search.moegirl": { type: "boolean", title: "\u840C\u5A18\u767E\u79D1", "x-hot": true },
+    "worlds.surfing.search.baike": { type: "boolean", title: "\u767E\u5EA6\u767E\u79D1", "x-hot": true }
   } }
 };
 var SURFING_LIMITS_CONFIG_GROUP = {
@@ -135,6 +135,7 @@ async function mount(ctx) {
     const grid = ui.h("div");
     grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px 24px";
     const saved = ui.msgline("");
+    const toggles = ui.h("div", "segwrap umulti");
     for (const [path, property] of Object.entries(group.schema.properties)) {
       const save = (value, apply) => {
         saves = saves.then(async () => {
@@ -147,30 +148,48 @@ async function mount(ctx) {
           saved.classList.add("bad");
         });
       };
+      if (property.type === "boolean") {
+        const toggle = ui.h("button", "seg", property.title);
+        toggle.type = "button";
+        const show = (enabled) => {
+          toggle.classList.toggle("active", enabled);
+          toggle.setAttribute("aria-pressed", String(enabled));
+        };
+        show(state.values[path] === true);
+        toggle.addEventListener("click", () => {
+          const value = !toggle.classList.contains("active");
+          show(value);
+          save(value, (next) => {
+            if (toggle.classList.contains("active") === value) show(next === true);
+          });
+        }, { signal: ctx.signal });
+        toggles.append(toggle);
+        continue;
+      }
       const note = ui.h("small", "muted", property.description);
       note.id = path;
-      const row = ui.h("div");
-      if (property.type === "boolean") {
-        const box = ui.checkbox(property.title, {
-          checked: state.values[path] === true,
-          onChange: (checked) => save(checked, (next) => box.setChecked(next === true))
+      const scale = property["x-scale"] ?? 1;
+      const input = ui.input({ type: "number", value: String(Number(state.values[path]) / scale), onChange: (value) => {
+        save(Number(value) * scale, (next) => {
+          if (input.value === value) input.value = String(Number(next) / scale);
         });
-        box.input.setAttribute("aria-describedby", note.id);
-        const line = ui.h("div");
-        line.append(box.el);
-        row.append(line, note);
-      } else {
-        const scale = property["x-scale"] ?? 1;
-        const input = ui.input({ type: "number", value: String(Number(state.values[path]) / scale), onChange: (value) => {
-          save(Number(value) * scale, (next) => {
-            if (input.value === value) input.value = String(Number(next) / scale);
-          });
-        } });
-        input.min = String(property.minimum / scale);
-        input.max = String(property.maximum / scale);
-        input.setAttribute("aria-describedby", note.id);
-        row.append(ui.field(`${property.title}\uFF08${property["x-suffix"]}\uFF09`, input), note);
-      }
+      } });
+      input.min = String(property.minimum / scale);
+      input.max = String(property.maximum / scale);
+      input.setAttribute("aria-describedby", note.id);
+      const row = ui.h("div");
+      row.append(ui.field(`${property.title}\uFF08${property["x-suffix"]}\uFF09`, input), note);
+      grid.append(row);
+    }
+    if (toggles.children.length) {
+      const caption = ui.h("span", "fieldlabel", "\u6765\u6E90");
+      caption.id = `${group.id}:sources`;
+      toggles.setAttribute("role", "group");
+      toggles.setAttribute("aria-labelledby", caption.id);
+      const field = ui.h("div", "fieldrow");
+      field.append(caption, toggles);
+      const row = ui.h("div");
+      row.append(field, ui.h("small", "muted", group.schema.description));
       grid.append(row);
     }
     sheet.body.append(grid, saved);

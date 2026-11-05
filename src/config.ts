@@ -46,15 +46,15 @@ export const SURFING_CONFIG_GROUP: ConfigGroup = {
 
 export const SURFING_SEARCH_CONFIG_GROUP: ConfigGroup = {
   id: 'world:surfing:search', owner: 'world:surfing',
-  schema: { type: 'object', title: '站点搜索', properties: {
+  schema: { type: 'object', title: '站点搜索', description: 'surfing_search_bili 不受 B站开关影响。', properties: {
     'worlds.surfing.search.maxResults': {
       type: 'integer', title: '每源显示条数', minimum: 1, maximum: 10,
-      'x-suffix': '条', 'x-hot': true, description: 'surf_all 的 B站和贴吧每批显示条数；贴吧未显示的条目留给“更多贴吧结果”。下次调用生效。',
+      'x-suffix': '条', 'x-hot': true, description: '作用于 B站和贴吧，下次调用生效。',
     },
-    'worlds.surfing.search.bili': { type: 'boolean', title: 'B站', 'x-hot': true, description: '关闭后 surf_all 不请求此来源，surfing_search_bili 不受影响。' },
-    'worlds.surfing.search.tieba': { type: 'boolean', title: '贴吧', 'x-hot': true, description: '关闭后 surf_all 不请求此来源。' },
-    'worlds.surfing.search.moegirl': { type: 'boolean', title: '萌娘百科', 'x-hot': true, description: '关闭后 surf_all 不请求此来源。' },
-    'worlds.surfing.search.baike': { type: 'boolean', title: '百度百科', 'x-hot': true, description: '关闭后 surf_all 不请求此来源。' },
+    'worlds.surfing.search.bili': { type: 'boolean', title: 'B站', 'x-hot': true },
+    'worlds.surfing.search.tieba': { type: 'boolean', title: '贴吧', 'x-hot': true },
+    'worlds.surfing.search.moegirl': { type: 'boolean', title: '萌娘百科', 'x-hot': true },
+    'worlds.surfing.search.baike': { type: 'boolean', title: '百度百科', 'x-hot': true },
   } },
 };
 

@@ -18,6 +18,7 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     const grid = ui.h('div');
     grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px 24px';
     const saved = ui.msgline('');
+    const toggles = ui.h('div', 'segwrap umulti');
     for (const [path, property] of Object.entries(group.schema.properties)) {
       const save = (value: number | boolean, apply: (next: number | boolean) => void): void => {
         saves = saves.then(async () => {
@@ -26,26 +27,44 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
           void ctx.refresh().catch(() => undefined);
         }).catch(error => { saved.textContent = errorText(error); saved.classList.add('bad'); });
       };
+      if (property.type === 'boolean') {
+        const toggle = ui.h('button', 'seg', property.title);
+        toggle.type = 'button';
+        const show = (enabled: boolean): void => {
+          toggle.classList.toggle('active', enabled);
+          toggle.setAttribute('aria-pressed', String(enabled));
+        };
+        show(state.values[path] === true);
+        toggle.addEventListener('click', () => {
+          const value = !toggle.classList.contains('active');
+          show(value);
+          save(value, next => { if (toggle.classList.contains('active') === value) show(next === true); });
+        }, { signal: ctx.signal });
+        toggles.append(toggle);
+        continue;
+      }
       const note = ui.h('small', 'muted', property.description);
       note.id = path;
+      const scale = property['x-scale'] ?? 1;
+      const input = ui.input({ type: 'number', value: String(Number(state.values[path]) / scale), onChange: value => {
+        save(Number(value) * scale, next => { if (input.value === value) input.value = String(Number(next) / scale); });
+      } });
+      input.min = String(property.minimum! / scale);
+      input.max = String(property.maximum! / scale);
+      input.setAttribute('aria-describedby', note.id);
       const row = ui.h('div');
-      if (property.type === 'boolean') {
-        const box = ui.checkbox(property.title, { checked: state.values[path] === true,
-          onChange: checked => save(checked, next => box.setChecked(next === true)) });
-        box.input.setAttribute('aria-describedby', note.id);
-        const line = ui.h('div');
-        line.append(box.el);
-        row.append(line, note);
-      } else {
-        const scale = property['x-scale'] ?? 1;
-        const input = ui.input({ type: 'number', value: String(Number(state.values[path]) / scale), onChange: value => {
-          save(Number(value) * scale, next => { if (input.value === value) input.value = String(Number(next) / scale); });
-        } });
-        input.min = String(property.minimum! / scale);
-        input.max = String(property.maximum! / scale);
-        input.setAttribute('aria-describedby', note.id);
-        row.append(ui.field(`${property.title}（${property['x-suffix']}）`, input), note);
-      }
+      row.append(ui.field(`${property.title}（${property['x-suffix']}）`, input), note);
+      grid.append(row);
+    }
+    if (toggles.children.length) {
+      const caption = ui.h('span', 'fieldlabel', '来源');
+      caption.id = `${group.id}:sources`;
+      toggles.setAttribute('role', 'group');
+      toggles.setAttribute('aria-labelledby', caption.id);
+      const field = ui.h('div', 'fieldrow');
+      field.append(caption, toggles);
+      const row = ui.h('div');
+      row.append(field, ui.h('small', 'muted', group.schema.description));
       grid.append(row);
     }
     sheet.body.append(grid, saved);
