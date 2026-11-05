@@ -293,6 +293,28 @@ pageRef: search_demo_1
 - 萌娘百科和百度百科按词条名精确查询，不是全文搜索。贴吧跨页可能出现上游重复帖子。
 - QQ 分享卡片缺少链接时，来源为 B站或哔哩哔哩且有标题，可按标题搜索并核对候选；来源无法确定时，需提供 BV号或视频链接，或明确要求按标题在 B站搜索。
 
+## 代理 fake-ip 模式
+
+Clash / mihomo 的 fake-ip 模式可能让系统 DNS 返回 `198.18.0.0/15` 中的占位地址。Surfing 只接受公网解析结果，遇到这类地址会在连接前拒绝；这不表示目标站点不可用。
+
+例如，在 DNS 返回 `198.18.2.27` 时调用：
+
+```js
+surfing_read_page({ url: "https://example.org/" })
+```
+
+回执为：
+
+```text
+[tool failed] DNS 返回 198.18.0.0/15 保留地址，常见于代理 fake-ip 模式，本次读取已拒绝。请让代理对目标域名返回真实 IP 后重试。
+```
+
+B站工具和站点搜索也受同一限制；`surfing_search_all` 会在各来源分组中显示该提示。
+
+在代理客户端中将 `dns.enhanced-mode` 改为 `redir-host`，让 DNS 返回真实 IP；也可以保留 fake-ip，在 `fake-ip-filter-mode: blacklist` 下把需要读取的域名加入 `fake-ip-filter`。搜索、重定向及字幕请求可能涉及其他域名，也需返回真实 IP。配置含义见 [mihomo DNS 文档](https://wiki.metacubex.one/config/dns/)。修改配置后重新加载代理配置并重试。
+
+其他非公网结果（包括 IPv6 ULA）仍会被拒绝，使用通用地址错误提示。仅凭保留网段不能确认代理或它最终连接的目标，因此本扩展不自动放行 fake-ip 地址，也不跳过地址校验。
+
 ## 许可
 
 MIT License，见 [LICENSE](LICENSE)。

@@ -108,7 +108,9 @@ class Operation implements ReadOperation {
         if (options.allowHost && !options.allowHost(url.hostname)) throw new ReadError('address_denied', '目标站点不在本次读取范围内。');
         const addresses = await waitWithSignal(this.resolve(url.hostname), this.signal);
         if (!addresses.length || addresses.some(a => !isPublicAddress(a.address)))
-          throw new ReadError('address_denied', '域名未解析到允许的公网地址。');
+          throw new ReadError('address_denied', addresses.some(a => /^198\.(18|19)\./.test(a.address))
+            ? 'DNS 返回 198.18.0.0/15 保留地址，常见于代理 fake-ip 模式，本次读取已拒绝。请让代理对目标域名返回真实 IP 后重试。'
+            : '域名未解析到允许的公网地址。');
         const selected = addresses.find(a => a.family === 4) ?? addresses[0];
         const response = await this.request(url, selected, options);
         if (![301, 302, 303, 307, 308].includes(response.status)) return response;
