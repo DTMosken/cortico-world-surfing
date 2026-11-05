@@ -1,4 +1,4 @@
-/** Built-in surf_all sources. Each list keeps upstream order; failures stay inside their own group. */
+/** Built-in surfing_all sources. Each list keeps upstream order; failures stay inside their own group. */
 import type { SurfingConfigSection } from './config.ts';
 import type { BiliClient } from './bili.ts';
 import { ReadError, asReadError, type ReadOperation } from './network.ts';
@@ -81,7 +81,7 @@ function material(query: string, title: string, groups: Group[], labelled: boole
   });
   const last = units.at(-1);
   if (last?.kind === 'text') last.text = last.text.trimEnd();
-  return { kind: 'site-search', key: 'site-search:' + query, source: 'surf_all', title, scope: {}, units,
+  return { kind: 'site-search', key: 'site-search:' + query, source: 'surfing_all', title, scope: {}, units,
     ...(Object.keys(links).length ? { links } : {}), ...(more ? { more, nextBatch: more.page + 1 } : {}) };
 }
 

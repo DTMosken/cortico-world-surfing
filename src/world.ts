@@ -23,14 +23,14 @@ const videoTarget = {
 };
 export const SURFING_TOOL_DECLS: ToolSpec[] = [
   {
-    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页和 surf_all 回执。url 初读网页；pageRef 与 linkId 打开回执中的编号，网页链接、帖子和词条打开原文，“更多贴吧结果”返回下一批结果，不带 cursor；pageRef 与 cursor 续读当前材料。返回预算内原文，仅接受公开域名，支持 URL 章节锚点。',
+    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页和 surfing_all 回执。url 初读网页；pageRef 与 linkId 打开回执中的编号，网页链接、帖子和词条打开原文，“更多贴吧结果”返回下一批结果，不带 cursor；pageRef 与 cursor 续读当前材料。返回预算内原文，仅接受公开域名，支持 URL 章节锚点。',
     parameters: { type: 'object', additionalProperties: false, oneOf: [
       { required: ['url'], not: { required: ['linkId'] } },
       { required: ['pageRef'], not: { required: ['linkId'] } },
       { required: ['pageRef', 'linkId'], not: { anyOf: [{ required: ['url'] }, { required: ['cursor'] }] } },
     ], properties: {
       url: { type: 'string', maxLength: 8192, description: '用户提供、分享卡片或搜索结果中的公开 HTTP(S) 网页 URL。' },
-      pageRef: { type: 'string', maxLength: 256, description: '网页或 surf_all 回执中的 pageRef；打开链接时用原页引用，续读时用目标页引用。' },
+      pageRef: { type: 'string', maxLength: 256, description: '网页或 surfing_all 回执中的 pageRef；打开链接时用原页引用，续读时用目标页引用。' },
       linkId: { type: 'string', pattern: '^L[1-9][0-9]*$', description: '打开回执中的编号，如 L1；需配合该回执的 pageRef，不带 cursor。' }, cursor,
     } },
   },
@@ -54,7 +54,7 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
     } },
   },
   {
-    name: 'surf_all', tags: ['read'],
+    name: 'surfing_all', tags: ['read'],
     description: '在 B站、贴吧、萌娘百科、百度百科并行查找关键词，返回短材料，不含通用网页。B站候选的 BV号交给 surfing_read_bili；其余结果带 [L#]，用回执的 pageRef 和 linkId 调用 surfing_read_page 打开原文或取得更多贴吧结果。省略 sources 时查询配置中启用的来源。',
     parameters: { type: 'object', additionalProperties: false, required: ['query'], properties: {
       query: { type: 'string', minLength: 1, maxLength: 240 },
@@ -130,7 +130,7 @@ export class SurfingWorld implements World {
           key = pageKey(args.url);
           if (!cursor) material = await this.pages.read(args.url, operation, config.network.maxDownloadBytes);
         }
-      } else if (name === 'surf_all') {
+      } else if (name === 'surfing_all') {
         material = await searchSites(searchQuery(args.query), args.sources, config.search, this.bili, operation);
         key = material.key;
       } else if (name === 'surfing_read_bili') {
@@ -161,8 +161,8 @@ export class SurfingWorld implements World {
           (page, op) => this.bili.search(query,page,op));
         else material = await this.bili.search(query, 1, operation);
       }
-      // A source that timed out already has its status line, so only the caller's cancel drops a surf_all receipt.
-      (name === 'surf_all' ? caller : operation.signal).throwIfAborted();
+      // A source that timed out already has its status line, so only the caller's cancel drops a surfing_all receipt.
+      (name === 'surfing_all' ? caller : operation.signal).throwIfAborted();
       if (material) cursor = this.cache.put(material, config);
       const page = this.cache.read(cursor!, key, config);
       this.last = { status: page.failed ? 'response_limit' : 'ok', failed: !!page.failed,

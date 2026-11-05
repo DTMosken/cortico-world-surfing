@@ -63,7 +63,7 @@ const hosts = (fixture: SitesFixture) => [...new Set(fixture.urls.map(url => new
 
 test('多源首搜按来源分组，贴吧和百科共用 pageRef 编号，B站只给 BV号', async () => {
   const { call, world } = setup();
-  const { text, failed } = await call('surf_all', { query: '破防' });
+  const { text, failed } = await call('surfing_all', { query: '破防' });
   expect(failed).toBeUndefined();
   const pageRef = receipt(text).pageRef!;
   expect(text).toBe(`「破防」\npageRef: ${pageRef}\n\n【B站】\n· 第1页 比赛 & 说明｜作者｜1:30｜BV1aa411a7aa\n\n【贴吧】\n`
@@ -75,7 +75,7 @@ test('多源首搜按来源分组，贴吧和百科共用 pageRef 编号，B站�
 
 test('B站候选的 BV号可用于 surfing_read_bili 的三种 mode，字幕为默认', async () => {
   const { call, fixture, world } = setup();
-  const bvid = /BV[0-9A-Za-z]{10}/.exec((await call('surf_all', { query: '破防', sources: ['bili'] })).text)![0];
+  const bvid = /BV[0-9A-Za-z]{10}/.exec((await call('surfing_all', { query: '破防', sources: ['bili'] })).text)![0];
   expect((await call('surfing_read_bili', { bvid })).text).toContain('开头。');
   expect((await call('surfing_read_bili', { bvid, cid: 201 })).text).toContain('附录说明。');
   const info = await call('surfing_read_bili', { bvid, mode: 'info' });
@@ -90,46 +90,46 @@ test('B站候选的 BV号可用于 surfing_read_bili 的三种 mode，字幕为�
 
 test('sources 和配置开关决定请求范围，并保持固定来源顺序', async () => {
   const selected = setup();
-  const tieba = await selected.call('surf_all', { query: '破防', sources: ['tieba'] });
+  const tieba = await selected.call('surfing_all', { query: '破防', sources: ['tieba'] });
   expect(tieba.text).toContain('【贴吧】'); expect(tieba.text).not.toContain('【B站】');
   expect(hosts(selected.fixture)).toEqual(['tieba.baidu.com']);
-  expect((await selected.call('surf_all', { query: '破防', sources: ['unknown'] })).failed).toBe(true);
-  expect((await selected.call('surf_all', { query: '破防', sources: [] })).failed).toBe(true);
+  expect((await selected.call('surfing_all', { query: '破防', sources: ['unknown'] })).failed).toBe(true);
+  expect((await selected.call('surfing_all', { query: '破防', sources: [] })).failed).toBe(true);
   await selected.world.stop();
 
   const off = setup(config => { config.search.moegirl = false; });
-  const text = (await off.call('surf_all', { query: '破防' })).text;
+  const text = (await off.call('surfing_all', { query: '破防' })).text;
   expect(text).not.toContain('萌娘百科'); expect(text).toContain('破防：百科释义。 [L7]');
   expect(hosts(off.fixture)).not.toContain('zh.moegirl.org.cn');
   off.fixture.urls = [];
-  expect((await off.call('surf_all', { query: '破防', sources: ['moegirl'] })).text).toBe('【萌娘百科】已在配置中关闭。');
+  expect((await off.call('surfing_all', { query: '破防', sources: ['moegirl'] })).text).toBe('【萌娘百科】已在配置中关闭。');
   expect(off.fixture.urls).toEqual([]);
   off.cfg.search.moegirl = true;
-  expect((await off.call('surf_all', { query: '破防' })).text).toContain('【萌娘百科】');
+  expect((await off.call('surfing_all', { query: '破防' })).text).toContain('【萌娘百科】');
   await off.world.stop();
 
   const none = setup(config => { Object.assign(config.search, { bili: false, tieba: false, moegirl: false, baike: false }); });
-  expect((await none.call('surf_all', { query: '破防' })).text).toBe('[tool failed] 所有来源已在配置中关闭。');
+  expect((await none.call('surfing_all', { query: '破防' })).text).toBe('[tool failed] 所有来源已在配置中关闭。');
   await none.world.stop();
 });
 
 test('单源失败只留短状态；仅 B站候选和无匹配都不生成 pageRef', async () => {
   const { call, fixture, world } = setup();
   fixture.fail.add('zh.moegirl.org.cn');
-  expect((await call('surf_all', { query: '破防', sources: ['bili', 'moegirl'] })).text)
+  expect((await call('surfing_all', { query: '破防', sources: ['bili', 'moegirl'] })).text)
     .toBe('「破防」\n\n【B站】\n· 第1页 比赛 & 说明｜作者｜1:30｜BV1aa411a7aa\n\n【萌娘百科】访问受限。');
   fixture.pages[1] = { posts: [], hasMore: 0 };
-  expect((await call('surf_all', { query: '无匹配', sources: ['tieba', 'baike'] })).text)
+  expect((await call('surfing_all', { query: '无匹配', sources: ['tieba', 'baike'] })).text)
     .toBe('【贴吧】未找到匹配结果。\n\n【百度百科】未找到匹配结果。');
   fixture.fail.delete('zh.moegirl.org.cn');
-  expect((await call('surf_all', { query: '无匹配', sources: ['moegirl'] })).text).toBe('【萌娘百科】未找到匹配结果。');
+  expect((await call('surfing_all', { query: '无匹配', sources: ['moegirl'] })).text).toBe('【萌娘百科】未找到匹配结果。');
   await world.stop();
 });
 
 test('某来源挂起到超时，其他来源结果仍然返回', async () => {
   const { call, fixture, world } = setup(config => { config.network.requestTimeoutMs = 3000; });
   fixture.hang.add('zh.moegirl.org.cn');
-  const { text, failed } = await call('surf_all', { query: '破防', sources: ['baike', 'moegirl'] });
+  const { text, failed } = await call('surfing_all', { query: '破防', sources: ['baike', 'moegirl'] });
   expect(failed).toBeUndefined();
   expect(text).toContain('破防：百科释义。 [L1]'); expect(text).toContain('【萌娘百科】读取已取消或超时。');
   await world.stop();
@@ -137,7 +137,7 @@ test('某来源挂起到超时，其他来源结果仍然返回', async () => {
 
 test('编号打开帖子和百科原文，正文沿用网页回执', async () => {
   const { call, fixture, world } = setup();
-  const first = receipt((await call('surf_all', { query: '破防' })).text);
+  const first = receipt((await call('surfing_all', { query: '破防' })).text);
   const post = await call('surfing_read_page', { pageRef: first.pageRef, linkId: 'L1' });
   expect(post.text).toContain('网页：帖子'); expect(post.text).toContain('帖子正文 100。');
   expect(fixture.urls).toContain('https://tieba.baidu.com/mo/m?kz=100');
@@ -148,7 +148,7 @@ test('编号打开帖子和百科原文，正文沿用网页回执', async () =>
 
 test('更多贴吧结果先读完已取页，再请求下一页；旧引用含义不变，耗尽后不再列编号', async () => {
   const { call, fixture, world } = setup();
-  const firstText = (await call('surf_all', { query: '破防', sources: ['tieba'] })).text;
+  const firstText = (await call('surfing_all', { query: '破防', sources: ['tieba'] })).text;
   const first = receipt(firstText);
   const tiebaRequests = () => fixture.urls.filter(url => url.includes('/search/thread')).length;
   expect(tiebaRequests()).toBe(1);
@@ -171,11 +171,11 @@ test('更多贴吧结果先读完已取页，再请求下一页；旧引用含�
 test('上游声称还有结果但下一页为空时报告耗尽；过期引用报告失败', async () => {
   const { call, fixture, world } = setup(config => { config.search.maxResults = 7; });
   fixture.pages[2] = { posts: [], hasMore: 0 };
-  const first = receipt((await call('surf_all', { query: '破防', sources: ['tieba'] })).text);
+  const first = receipt((await call('surfing_all', { query: '破防', sources: ['tieba'] })).text);
   expect((await call('surfing_read_page', { pageRef: first.pageRef, linkId: 'L8' })).text).toBe('【贴吧】没有更多结果。');
   await world.stop();
   const expired = setup();
-  const ref = receipt((await expired.call('surf_all', { query: '破防', sources: ['tieba'] })).text).pageRef;
+  const ref = receipt((await expired.call('surfing_all', { query: '破防', sources: ['tieba'] })).text).pageRef;
   expired.fixture.pages[2] = { posts: [], hasMore: 0 };
   await expired.world.stop();
   await expired.world.start({} as never);
@@ -187,7 +187,7 @@ test('上游声称还有结果但下一页为空时报告耗尽；过期引用�
 test('回执超出返回上限时用 pageRef 与 cursor 续读', async () => {
   const { call, fixture, world, cfg } = setup(config => { config.reading.maxResponseEstimatedTokens = 1024; config.search.maxResults = 10; });
   fixture.pages[1] = { hasMore: 0, posts: Array.from({ length: 10 }, (_, i) => ({ tid: String(i), title: '题'.repeat(60) + i, content: '摘'.repeat(70), forum_name: '吧'.repeat(30) })) };
-  let page = receipt((await call('surf_all', { query: '破防' })).text);
+  let page = receipt((await call('surfing_all', { query: '破防' })).text);
   let all = page.content;
   expect(page.nextCursor).toBeTruthy();
   const ref = page.pageRef;
