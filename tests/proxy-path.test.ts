@@ -18,7 +18,7 @@ function context(): WorldContext<SurfingConfigSection> {
 
 async function withWorld(run: (panel: {
   ctx: WorldContext<SurfingConfigSection>; requests: string[];
-  read: (path: string, host?: string) => Promise<{ text: string; failed?: boolean }>;
+  read: (path: string) => Promise<{ text: string; failed?: boolean }>;
   save: (path: string, value: unknown) => Promise<unknown>;
 }) => Promise<void>): Promise<void> {
   const requests: string[] = [];
@@ -39,7 +39,7 @@ async function withWorld(run: (panel: {
   const tool = world.tools().find(candidate => candidate.name === 'surfing_read_page')!;
   try {
     await run({ ctx, requests,
-      read: async (path, host = 'example.org') => await tool.handler({ url: `http://${host}:${(server.address() as AddressInfo).port}${path}` }, {} as never) as { text: string; failed?: boolean },
+      read: async path => await tool.handler({ url: `http://example.org:${(server.address() as AddressInfo).port}${path}` }, {} as never) as { text: string; failed?: boolean },
       save: (path, value) => world.webUi().invoke!('config', 'save', [path, value]) });
   } finally { await world.stop(); server.close(); }
 }
@@ -58,7 +58,7 @@ test('开关对下一次读取生效，开启后的网页经过静态读取和 C
 
   requests.length = 0;
   await save(PROXY_MODE_PATH, false);
-  expect((await read('/page', 'again.example.org')).failed).toBe(true);
+  expect((await read('/page')).failed).toBe(true);
   expect(requests).toEqual([]);
 }));
 
@@ -77,7 +77,7 @@ test('无效范围不写入配置，保存错误指出行号', () => withWorld(a
   expect(ctx.cfg.network.customProxyRanges).toBe('172.19.0.0/16');
 }));
 
-test('旧配置缺少新字段时按关闭处理，手改的无效范围在启动检查时报告', () => {
+test('旧配置缺少新字段时补默认的关闭状态，validateConfig 拒绝无效范围', () => {
   const ctx = context();
   ctx.cfg.network = { maxDownloadBytes: 1048576, requestTimeoutMs: 3000 } as SurfingConfigSection['network'];
   new SurfingWorld(ctx);

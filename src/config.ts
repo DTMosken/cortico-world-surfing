@@ -63,7 +63,7 @@ export const SURFING_SEARCH_CONFIG_GROUP: ConfigGroup = {
 
 export const SURFING_PROXY_CONFIG_GROUP: ConfigGroup = {
   id: 'world:surfing:proxy', owner: 'world:surfing',
-  schema: { type: 'object', title: '代理', description: '正在使用 Clash 等代理？如果网页和B站读取都提示地址错误，可以尝试开启代理兼容模式。', properties: {
+  schema: { type: 'object', title: '代理', description: '正在使用 Clash 等代理？如果网页和B站读取都提示虚拟地址，可以尝试开启代理兼容模式。', properties: {
     [PROXY_MODE_PATH]: {
       type: 'boolean', title: '代理兼容模式', 'x-hot': true, 'x-warning': true,
       description: '开启后，实际访问哪里由代理决定，可能包括本机或内网服务。请只在信任当前代理时开启，下次读取生效。',

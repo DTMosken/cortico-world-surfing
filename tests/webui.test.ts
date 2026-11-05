@@ -31,9 +31,9 @@ async function withPanel(run: (panel: {
     dataDir: dir, packageDir: dir, repoRoot: dir, timezone: 'UTC', secret: secretReader(join(dir, '.env')),
     storeSecret() { throw new Error('Keys are edited in the file'); },
     persist(patch) {
+      for (const [section, values] of Object.entries(patch)) Object.assign(cfg[section as keyof SurfingConfigSection] as object, values);
       if (failing) throw new Error('配置文件无法写入。');
       persisted.push(patch);
-      for (const [section, values] of Object.entries(patch)) Object.assign(cfg[section as keyof SurfingConfigSection] as object, values);
     },
     async restart() {},
   };
@@ -81,11 +81,9 @@ test('代理兼容模式默认关闭，保存成功后才显示开启，失败�
 
   failSaves(true);
   toggle.click();
-  expect(toggle.disabled).toBe(true);
   await vi.waitFor(() => expect(message().textContent).toBe('配置文件无法写入。'));
   expect(message().classList.contains('bad')).toBe(true);
   expect(toggle.getAttribute('aria-pressed')).toBe('false');
-  expect(toggle.disabled).toBe(false);
   expect(cfg.network.proxyCompatibility).toBe(false);
 
   failSaves(false);
@@ -102,7 +100,7 @@ test('代理兼容模式默认关闭，保存成功后才显示开启，失败�
   expect(cfg.network.proxyCompatibility).toBe(true);
 }));
 
-test('自定义地址范围默认为空，无效内容提示行号且不写入', () => withPanel(async ({ root, cfg, persisted, window }) => {
+test('自定义地址范围默认为空，无效内容提示行号且不写入', () => withPanel(async ({ root, cfg, persisted, window, failSaves }) => {
   const box = root.querySelector('textarea')!;
   const message = () => box.closest('details')!.querySelector('.msgline')!;
   const edit = (value: string) => { box.value = value; box.dispatchEvent(new window.Event('change')); };
@@ -116,6 +114,10 @@ test('自定义地址范围默认为空，无效内容提示行号且不写入',
   await vi.waitFor(() => expect(message().textContent).toBe('已保存：自定义地址范围（可选）'));
   expect(cfg.network.customProxyRanges).toBe('172.19.0.0/16\nfd00:1234::/64');
   expect(cfg.network.proxyCompatibility).toBe(false);
+  failSaves(true);
+  edit('10.0.0.0/8');
+  await vi.waitFor(() => expect(message().textContent).toBe('配置文件无法写入。'));
+  expect(cfg.network.customProxyRanges).toBe('172.19.0.0/16\nfd00:1234::/64');
 }));
 
 test('数值按显示单位编辑，按存储单位校验并写回', () => withPanel(async ({ root, cfg, persisted, window }) => {

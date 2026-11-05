@@ -919,7 +919,7 @@ var SURFING_SEARCH_CONFIG_GROUP = {
 var SURFING_PROXY_CONFIG_GROUP = {
   id: "world:surfing:proxy",
   owner: "world:surfing",
-  schema: { type: "object", title: "\u4EE3\u7406", description: "\u6B63\u5728\u4F7F\u7528 Clash \u7B49\u4EE3\u7406\uFF1F\u5982\u679C\u7F51\u9875\u548CB\u7AD9\u8BFB\u53D6\u90FD\u63D0\u793A\u5730\u5740\u9519\u8BEF\uFF0C\u53EF\u4EE5\u5C1D\u8BD5\u5F00\u542F\u4EE3\u7406\u517C\u5BB9\u6A21\u5F0F\u3002", properties: {
+  schema: { type: "object", title: "\u4EE3\u7406", description: "\u6B63\u5728\u4F7F\u7528 Clash \u7B49\u4EE3\u7406\uFF1F\u5982\u679C\u7F51\u9875\u548CB\u7AD9\u8BFB\u53D6\u90FD\u63D0\u793A\u865A\u62DF\u5730\u5740\uFF0C\u53EF\u4EE5\u5C1D\u8BD5\u5F00\u542F\u4EE3\u7406\u517C\u5BB9\u6A21\u5F0F\u3002", properties: {
     [PROXY_MODE_PATH]: {
       type: "boolean",
       title: "\u4EE3\u7406\u517C\u5BB9\u6A21\u5F0F",
@@ -1011,7 +1011,6 @@ async function mount(ctx) {
       saved.textContent = errorText(error);
       saved.classList.add("bad");
     });
-    return saves;
   };
   const proxySheet = () => {
     const { schema } = SURFING_PROXY_CONFIG_GROUP;
@@ -1023,10 +1022,7 @@ async function mount(ctx) {
     toggle.type = "button";
     showPressed(toggle, state.values[PROXY_MODE_PATH] === true);
     toggle.addEventListener("click", () => {
-      toggle.disabled = true;
-      void saveValue(PROXY_MODE_PATH, mode.title, saved, !toggle.classList.contains("active"), (next) => showPressed(toggle, next === true)).finally(() => {
-        toggle.disabled = false;
-      });
+      saveValue(PROXY_MODE_PATH, mode.title, saved, !toggle.classList.contains("active"), (next) => showPressed(toggle, next === true));
     }, { signal: ctx.signal });
     const caption = ui.h("span", "fieldlabel", mode.title);
     caption.id = "surfing-proxy-mode";
@@ -1048,9 +1044,7 @@ async function mount(ctx) {
       cls: "mono",
       rows: 4,
       value: String(state.values[PROXY_RANGES_PATH]),
-      onChange: (value) => {
-        void saveValue(PROXY_RANGES_PATH, ranges.title, rangesSaved, value);
-      }
+      onChange: (value) => saveValue(PROXY_RANGES_PATH, ranges.title, rangesSaved, value)
     });
     const rangesNote = ui.h("small", "muted", ranges.description);
     rangesNote.id = "surfing-proxy-ranges-note";
@@ -1072,9 +1066,7 @@ async function mount(ctx) {
     const saved = ui.msgline("");
     const toggles = ui.h("div", "segwrap umulti");
     for (const [path, property] of Object.entries(group.schema.properties)) {
-      const save = (value, apply) => {
-        void saveValue(path, property.title, saved, value, apply);
-      };
+      const save = (value, apply) => saveValue(path, property.title, saved, value, apply);
       if (property.type === "boolean") {
         const toggle = ui.h("button", "seg", property.title);
         toggle.type = "button";

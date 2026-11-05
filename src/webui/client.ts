@@ -16,14 +16,13 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
   const layout = ui.h('div');
   layout.style.cssText = 'display:grid;gap:20px;max-width:960px;margin:auto';
   let saves: Promise<void> = Promise.resolve();
-  const saveValue = (path: string, title: string, saved: HTMLElement, value: ConfigValue, apply?: (next: ConfigValue) => void): Promise<void> => {
+  const saveValue = (path: string, title: string, saved: HTMLElement, value: ConfigValue, apply?: (next: ConfigValue) => void): void => {
     saves = saves.then(async () => {
       const next = (await ctx.invoke<ConfigState>('save', [path, value])).values[path]!;
       apply?.(next);
       saved.textContent = `已保存：${title}`; saved.classList.remove('bad');
       void ctx.refresh().catch(() => undefined);
     }).catch(error => { saved.textContent = errorText(error); saved.classList.add('bad'); });
-    return saves;
   };
   const proxySheet = (): HTMLElement => {
     const { schema } = SURFING_PROXY_CONFIG_GROUP;
@@ -35,9 +34,7 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     toggle.type = 'button';
     showPressed(toggle, state.values[PROXY_MODE_PATH] === true);
     toggle.addEventListener('click', () => {
-      toggle.disabled = true;
-      void saveValue(PROXY_MODE_PATH, mode.title, saved, !toggle.classList.contains('active'), next => showPressed(toggle, next === true))
-        .finally(() => { toggle.disabled = false; });
+      saveValue(PROXY_MODE_PATH, mode.title, saved, !toggle.classList.contains('active'), next => showPressed(toggle, next === true));
     }, { signal: ctx.signal });
     const caption = ui.h('span', 'fieldlabel', mode.title);
     caption.id = 'surfing-proxy-mode';
@@ -57,7 +54,7 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     const advanced = ui.foldSheet('surfing-proxy-advanced', { title: '高级设置', defaultOpen: false });
     const rangesSaved = ui.msgline('');
     const input = ui.textarea({ cls: 'mono', rows: 4, value: String(state.values[PROXY_RANGES_PATH]),
-      onChange: value => { void saveValue(PROXY_RANGES_PATH, ranges.title, rangesSaved, value); } });
+      onChange: value => saveValue(PROXY_RANGES_PATH, ranges.title, rangesSaved, value) });
     const rangesNote = ui.h('small', 'muted', ranges.description);
     rangesNote.id = 'surfing-proxy-ranges-note';
     input.setAttribute('aria-describedby', rangesNote.id);
@@ -77,9 +74,7 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     const saved = ui.msgline('');
     const toggles = ui.h('div', 'segwrap umulti');
     for (const [path, property] of Object.entries(group.schema.properties)) {
-      const save = (value: number | boolean, apply?: (next: ConfigValue) => void): void => {
-        void saveValue(path, property.title, saved, value, apply);
-      };
+      const save = (value: number | boolean, apply?: (next: ConfigValue) => void): void => saveValue(path, property.title, saved, value, apply);
       if (property.type === 'boolean') {
         const toggle = ui.h('button', 'seg', property.title);
         toggle.type = 'button';

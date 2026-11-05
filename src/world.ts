@@ -220,7 +220,11 @@ export class SurfingWorld implements World {
     if ('error' in result) throw new Error(result.error);
     if (key === PROXY_RANGES_PATH) parseAddressRanges(result.values[key] as string);
     const [section, field] = key.split('.').slice(2);
-    this.ctx.persist({ [section]: { [field]: result.values[key] } });
+    // The host updates cfg before writing the file, so a failed write must not leave the new value in memory.
+    const values = (this.ctx.cfg as unknown as Record<string, Record<string, unknown>>)[section]!;
+    const previous = values[field];
+    try { this.ctx.persist({ [section]: { [field]: result.values[key] } }); }
+    catch (error) { values[field] = previous; throw error; }
   }
 
   webUi(): WorldWebUiDecl {
