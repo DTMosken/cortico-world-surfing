@@ -20,9 +20,10 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     const saved = ui.msgline('');
     const toggles = ui.h('div', 'segwrap umulti');
     for (const [path, property] of Object.entries(group.schema.properties)) {
-      const save = (value: number | boolean, apply: (next: number | boolean) => void): void => {
+      const save = (value: number | boolean, apply?: (next: number | boolean) => void): void => {
         saves = saves.then(async () => {
-          apply((await ctx.invoke<ConfigState>('save', [path, value])).values[path]!);
+          const next = (await ctx.invoke<ConfigState>('save', [path, value])).values[path]!;
+          apply?.(next);
           saved.textContent = `已保存：${property.title}`; saved.classList.remove('bad');
           void ctx.refresh().catch(() => undefined);
         }).catch(error => { saved.textContent = errorText(error); saved.classList.add('bad'); });
@@ -38,7 +39,7 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
         toggle.addEventListener('click', () => {
           const value = !toggle.classList.contains('active');
           show(value);
-          save(value, next => { if (toggle.classList.contains('active') === value) show(next === true); });
+          save(value);
         }, { signal: ctx.signal });
         toggles.append(toggle);
         continue;
@@ -61,10 +62,13 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
       caption.id = `${group.id}:sources`;
       toggles.setAttribute('role', 'group');
       toggles.setAttribute('aria-labelledby', caption.id);
+      const note = ui.h('small', 'muted', group.schema.description);
+      note.id = `${group.id}:sources-note`;
+      toggles.setAttribute('aria-describedby', note.id);
       const field = ui.h('div', 'fieldrow');
       field.append(caption, toggles);
       const row = ui.h('div');
-      row.append(field, ui.h('small', 'muted', group.schema.description));
+      row.append(field, note);
       grid.append(row);
     }
     sheet.body.append(grid, saved);

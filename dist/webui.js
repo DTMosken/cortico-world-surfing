@@ -54,7 +54,7 @@ var SURFING_CONFIG_GROUP = {
 var SURFING_SEARCH_CONFIG_GROUP = {
   id: "world:surfing:search",
   owner: "world:surfing",
-  schema: { type: "object", title: "\u7AD9\u70B9\u641C\u7D22", description: "surfing_search_bili \u4E0D\u53D7 B\u7AD9\u5F00\u5173\u5F71\u54CD\u3002", properties: {
+  schema: { type: "object", title: "\u7AD9\u70B9\u641C\u7D22", description: "\u672C\u7EC4\u8BBE\u7F6E\u53EA\u5F71\u54CD surf_all\uFF0C\u4E0B\u6B21\u8C03\u7528\u751F\u6548\u3002", properties: {
     "worlds.surfing.search.maxResults": {
       type: "integer",
       title: "\u6BCF\u6E90\u663E\u793A\u6761\u6570",
@@ -62,7 +62,7 @@ var SURFING_SEARCH_CONFIG_GROUP = {
       maximum: 10,
       "x-suffix": "\u6761",
       "x-hot": true,
-      description: "\u4F5C\u7528\u4E8E B\u7AD9\u548C\u8D34\u5427\uFF0C\u4E0B\u6B21\u8C03\u7528\u751F\u6548\u3002"
+      description: "\u4F5C\u7528\u4E8E B\u7AD9\u548C\u8D34\u5427\u3002"
     },
     "worlds.surfing.search.bili": { type: "boolean", title: "B\u7AD9", "x-hot": true },
     "worlds.surfing.search.tieba": { type: "boolean", title: "\u8D34\u5427", "x-hot": true },
@@ -139,7 +139,8 @@ async function mount(ctx) {
     for (const [path, property] of Object.entries(group.schema.properties)) {
       const save = (value, apply) => {
         saves = saves.then(async () => {
-          apply((await ctx.invoke("save", [path, value])).values[path]);
+          const next = (await ctx.invoke("save", [path, value])).values[path];
+          apply?.(next);
           saved.textContent = `\u5DF2\u4FDD\u5B58\uFF1A${property.title}`;
           saved.classList.remove("bad");
           void ctx.refresh().catch(() => void 0);
@@ -159,9 +160,7 @@ async function mount(ctx) {
         toggle.addEventListener("click", () => {
           const value = !toggle.classList.contains("active");
           show(value);
-          save(value, (next) => {
-            if (toggle.classList.contains("active") === value) show(next === true);
-          });
+          save(value);
         }, { signal: ctx.signal });
         toggles.append(toggle);
         continue;
@@ -186,10 +185,13 @@ async function mount(ctx) {
       caption.id = `${group.id}:sources`;
       toggles.setAttribute("role", "group");
       toggles.setAttribute("aria-labelledby", caption.id);
+      const note = ui.h("small", "muted", group.schema.description);
+      note.id = `${group.id}:sources-note`;
+      toggles.setAttribute("aria-describedby", note.id);
       const field = ui.h("div", "fieldrow");
       field.append(caption, toggles);
       const row = ui.h("div");
-      row.append(field, ui.h("small", "muted", group.schema.description));
+      row.append(field, note);
       grid.append(row);
     }
     sheet.body.append(grid, saved);

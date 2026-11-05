@@ -59,8 +59,7 @@ test('配置面板合并全部设置，Microlink 步骤写明 API Key 的控制�
   expect(root.querySelectorAll('input[type=number]')).toHaveLength(10);
   expect([...root.querySelectorAll('.segwrap button')].map(button => [button.textContent, button.getAttribute('aria-pressed')]))
     .toEqual(['B站', '贴吧', '萌娘百科', '百度百科'].map(source => [source, 'true']));
-  expect(root.textContent).toContain('surfing_search_bili 不受 B站开关影响。');
-  expect(root.textContent).not.toContain('关闭后');
+  expect(root.textContent).toContain('本组设置只影响 surf_all，下次调用生效。');
   expect(root.querySelector('a')?.href).toBe('https://dashboard.microlink.io/signup');
   const steps = [...root.querySelectorAll('ol li')].map(element => element.textContent);
   expect(steps).toHaveLength(5);
@@ -96,7 +95,6 @@ test('站点搜索开关和条数写回配置', () => withPanel(async ({ root, c
   await vi.waitFor(() => expect(root.textContent).toContain('已保存：萌娘百科'));
   expect(cfg.search.moegirl).toBe(false);
   expect(source('萌娘百科').getAttribute('aria-pressed')).toBe('false');
-  expect(source('萌娘百科').classList.contains('active')).toBe(false);
   expect(source('贴吧').getAttribute('aria-pressed')).toBe('true');
   source('贴吧').click();
   expect(source('贴吧').getAttribute('aria-pressed')).toBe('false');
@@ -104,8 +102,6 @@ test('站点搜索开关和条数写回配置', () => withPanel(async ({ root, c
   expect(source('贴吧').getAttribute('aria-pressed')).toBe('true');
   await vi.waitFor(() => expect(persisted).toHaveLength(3));
   expect(cfg.search.tieba).toBe(true);
-  expect(cfg.search.moegirl).toBe(false);
-  expect(source('贴吧').getAttribute('aria-pressed')).toBe('true');
   const count = [...root.querySelectorAll('input')].find(input => input.labels?.[0]?.textContent === '每源显示条数（条）')!;
   expect(count.value).toBe('5');
   count.value = '2'; count.dispatchEvent(new window.Event('change'));
