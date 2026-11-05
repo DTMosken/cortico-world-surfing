@@ -1,12 +1,15 @@
 import type { ConfigGroup } from 'cortico/core/types.ts';
+import { parseAddressRanges } from './address-ranges.ts';
 
 export const SURFING_MICROLINK_SECRET = 'CORTICO_SURFING_MICROLINK_API_KEY';
+export const PROXY_MODE_PATH = 'worlds.surfing.network.proxyCompatibility';
+export const PROXY_RANGES_PATH = 'worlds.surfing.network.customProxyRanges';
 
 export interface SurfingConfigSection {
   enabled: boolean;
   reading: { maxResponseEstimatedTokens: number; maxSourceChars: number };
   bili: { subtitleGroupSec: number; maxSubtitleRetries: number; subtitleRetryDelayMs: number };
-  network: { maxDownloadBytes: number; requestTimeoutMs: number };
+  network: { maxDownloadBytes: number; requestTimeoutMs: number; proxyCompatibility: boolean; customProxyRanges: string };
   cache: { ttlMs: number; maxBytes: number };
   search: { bili: boolean; tieba: boolean; moegirl: boolean; baike: boolean; maxResults: number };
 }
@@ -15,7 +18,7 @@ export const SURFING_DEFAULTS: SurfingConfigSection = {
   enabled: false,
   reading: { maxResponseEstimatedTokens: 3000, maxSourceChars: 300000 },
   bili: { subtitleGroupSec: 30, maxSubtitleRetries: 2, subtitleRetryDelayMs: 1000 },
-  network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 20000 },
+  network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 20000, proxyCompatibility: false, customProxyRanges: '' },
   cache: { ttlMs: 900000, maxBytes: 32 * 1024 * 1024 },
   search: { bili: true, tieba: true, moegirl: true, baike: true, maxResults: 5 },
 };
@@ -58,6 +61,20 @@ export const SURFING_SEARCH_CONFIG_GROUP: ConfigGroup = {
   } },
 };
 
+export const SURFING_PROXY_CONFIG_GROUP: ConfigGroup = {
+  id: 'world:surfing:proxy', owner: 'world:surfing',
+  schema: { type: 'object', title: '代理', description: '正在使用 Clash 等代理？如果网页和B站读取都提示地址错误，可以尝试开启代理兼容模式。', properties: {
+    [PROXY_MODE_PATH]: {
+      type: 'boolean', title: '代理兼容模式', 'x-hot': true, 'x-warning': true,
+      description: '开启后，实际访问哪里由代理决定，可能包括本机或内网服务。请只在信任当前代理时开启，下次读取生效。',
+    },
+    [PROXY_RANGES_PATH]: {
+      type: 'string', title: '自定义地址范围（可选）', 'x-hot': true, 'x-warning': true,
+      description: '常见地址已内置，只有改过代理的地址池才需要填写。每行一个，例如 172.19.0.0/16。',
+    },
+  } },
+};
+
 export const SURFING_LIMITS_CONFIG_GROUP: ConfigGroup = {
   id: 'world:surfing:limits', owner: 'world:surfing',
   schema: { type: 'object', title: '获取与缓存限制', properties: {
@@ -84,7 +101,7 @@ export const SURFING_LIMITS_CONFIG_GROUP: ConfigGroup = {
   } },
 };
 
-export const SURFING_CONFIG_GROUPS = [SURFING_CONFIG_GROUP, SURFING_SEARCH_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP];
+export const SURFING_CONFIG_GROUPS = [SURFING_CONFIG_GROUP, SURFING_SEARCH_CONFIG_GROUP, SURFING_PROXY_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP];
 
 export function configValue(config: SurfingConfigSection, path: string): unknown {
   return path.split('.').slice(2).reduce<unknown>((part, key) => (part as Record<string, unknown>)?.[key], config);
@@ -92,6 +109,7 @@ export function configValue(config: SurfingConfigSection, path: string): unknown
 
 export function applyConfigDefaults(config: SurfingConfigSection): void {
   config.search = { ...SURFING_DEFAULTS.search, ...config.search };
+  config.network = { ...SURFING_DEFAULTS.network, ...config.network };
   if (config.bili.maxSubtitleRetries === undefined) config.bili.maxSubtitleRetries = SURFING_DEFAULTS.bili.maxSubtitleRetries;
   if (config.bili.subtitleRetryDelayMs === undefined) config.bili.subtitleRetryDelayMs = SURFING_DEFAULTS.bili.subtitleRetryDelayMs;
 }
@@ -103,6 +121,11 @@ export function validateConfig(config: SurfingConfigSection): void {
       const value = configValue(config, path);
       if (schema.type === 'boolean') {
         if (typeof value !== 'boolean') throw new Error(`${schema.title}超出配置范围。`);
+        continue;
+      }
+      if (schema.type === 'string') {
+        if (typeof value !== 'string') throw new Error(`${schema.title}超出配置范围。`);
+        parseAddressRanges(value);
         continue;
       }
       if (typeof value !== 'number' || !Number.isInteger(value) || value < schema.minimum! || value > schema.maximum!)

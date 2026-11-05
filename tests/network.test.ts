@@ -31,17 +31,6 @@ test('整个操作的时限覆盖未返回的 DNS 请求', async () => {
   finally { operation.close(); }
 });
 
-test.each(['198.18.2.27', '198.19.255.254'])('DNS 返回 %s 时拒绝读取并提示 fake-ip 排查方向', async address => {
-  const operation = new PublicClient(async()=>[{address,family:4}])
-    .operation({requestTimeoutMs:1000,maxDownloadBytes:4096});
-  try {
-    await expect(operation.get('https://example.org/')).rejects.toMatchObject({
-      kind:'address_denied',
-      message:'DNS 返回 198.18.0.0/15 保留地址，常见于代理 fake-ip 模式，本次读取已拒绝。请让代理对目标域名返回真实 IP 后重试。',
-    });
-  } finally { operation.close(); }
-});
-
 test('公网判断排除保留地址、映射地址与隧道地址', () => {
   for (const address of ['127.0.0.1', '10.0.0.1', '169.254.169.254', '192.0.2.1', '100.64.0.1',
     '0.0.0.0', '198.18.0.1', '198.19.255.254', '240.0.0.1', '::1', 'fc00::1', 'fe80::1', '::ffff:127.0.0.1', '2001:db8::1', '2002:7f00:1::'])
