@@ -42,7 +42,7 @@ function context(): WorldContext<SurfingConfigSection> {
 
 test('独立 World 无需凭证即可提供工具和可调配置', () => {
   const world = new SurfingWorld(context());
-  expect(world.tools().map(x=>x.name)).toEqual(['surfing_read_page','surfing_read_bili','surfing_search_bili','surfing_all']);
+  expect(world.tools().map(x=>x.name)).toEqual(['surfing_read_page','surfing_read_bili','surfing_search_bili','surfing_search_all']);
   const fields = SURFING_CONFIG_GROUPS.flatMap(group => Object.keys(group.schema.properties));
   expect(fields).toContain('worlds.surfing.reading.maxResponseEstimatedTokens');
   expect(fields).toContain('worlds.surfing.bili.maxSubtitleRetries');
@@ -239,7 +239,7 @@ test.each([
   { name: 'surfing_search_bili', args: { query: '竞赛' } },
   { name: 'surfing_read_bili', args: { bvid: 'BV1aa411a7aa', mode: 'info' } },
   { name: 'surfing_read_bili', args: { bvid: 'BV1aa411a7aa', mode: 'comments' } },
-  { name: 'surfing_all', args: { query: '竞赛' } },
+  { name: 'surfing_search_all', args: { query: '竞赛' } },
 ])('interrupt 取消 $name 的在途读取，回执之后投递新事件', async ({ name, args }) => {
   let waiting = false;
   class WaitingFixture extends PlatformFixture {

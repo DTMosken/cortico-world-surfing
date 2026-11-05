@@ -125,10 +125,10 @@ BV: BVxxxxxxxxxx；热门评论；含楼中楼预览
 
 ## 站点搜索
 
-`surfing_all` 只接受 `query` 和可选的 `sources`，来源为 `bili`、`tieba`、`moegirl`、`baike`。各来源并行查询一次，全部免费、免 API Key、无需登录。以下示例中的标题、BV号和引用均为示意。
+`surfing_search_all` 只接受 `query` 和可选的 `sources`，来源为 `bili`、`tieba`、`moegirl`、`baike`。各来源并行查询一次，全部免费、免 API Key、无需登录。以下示例中的标题、BV号和引用均为示意。
 
 ```js
-surfing_all({ query: "破防" })
+surfing_search_all({ query: "破防" })
 ```
 
 ```text
@@ -150,12 +150,12 @@ pageRef: search_demo_1
 破防：网络流行语，是破除防御的简称。 [L4]
 ```
 
-B站候选把 BV号交给 `surfing_read_bili`，不返回搜索游标。想继续搜 B站时，先调用 `surfing_search_bili({ query })`，再用它自己回执中的 `cursor` 续搜，`surfing_all` 不提供这个 `cursor`。其余结果的编号只在所属 `pageRef` 内有效，新回执不改变旧回执中编号的含义。
+B站候选把 BV号交给 `surfing_read_bili`，不返回搜索游标。想继续搜 B站时，先调用 `surfing_search_bili({ query })`，再用它自己回执中的 `cursor` 续搜，`surfing_search_all` 不提供这个 `cursor`。其余结果的编号只在所属 `pageRef` 内有效，新回执不改变旧回执中编号的含义。
 
 **只查部分来源**
 
 ```js
-surfing_all({ query: "破防", sources: ["tieba"] })
+surfing_search_all({ query: "破防", sources: ["tieba"] })
 ```
 
 ```text
@@ -218,7 +218,7 @@ pageRef: tieba_demo_2
 
 在配置页的「站点搜索」调整，下次调用生效。
 
-- **来源开关**：点击“萌娘百科”取消选中后，`surfing_all({ query: "破防" })` 的回执没有【萌娘百科】分组，也不向该站发送请求，后续编号顺延。指定 `sources: ["moegirl"]` 时回执为 `【萌娘百科】已在配置中关闭。`。再次点击后恢复。`surfing_search_bili` 不受 B站开关影响。
+- **来源开关**：点击“萌娘百科”取消选中后，`surfing_search_all({ query: "破防" })` 的回执没有【萌娘百科】分组，也不向该站发送请求，后续编号顺延。指定 `sources: ["moegirl"]` 时回执为 `【萌娘百科】已在配置中关闭。`。再次点击后恢复。`surfing_search_bili` 不受 B站开关影响。
 - **每源显示条数**：默认5条，范围1到10条，作用于 B站和贴吧。改为2后，贴吧回执只列两条帖子，“更多贴吧结果”从第3条继续，不跳到上游下一页：
 
   ```text
@@ -289,7 +289,7 @@ pageRef: search_demo_1
 - 网页需通过公开域名访问；不支持账号登录、本机地址或IP地址。正文需要登录或验证码时，可能只能取得页面提示。
 - 视频内容来自可访问的字幕。重试后仍未取得字幕时会说明本次读取失败，无法据此判断视频没有字幕或声音。
 - 网页阅读返回正文，暂不提取PDF、图片、音频或视频画面。
-- 萌娘百科条目页目前对本扩展的阅读器返回 Cloudflare 验证页，编号打开时回执为“网页未允许本次公开读取。”。`surfing_all` 中的摘要来自官方接口，不受影响。
+- 萌娘百科条目页目前对本扩展的阅读器返回 Cloudflare 验证页，编号打开时回执为“网页未允许本次公开读取。”。`surfing_search_all` 中的摘要来自官方接口，不受影响。
 - 萌娘百科和百度百科按词条名精确查询，不是全文搜索。贴吧跨页可能出现上游重复帖子。
 - QQ 分享卡片缺少链接时，来源为 B站或哔哩哔哩且有标题，可按标题搜索并核对候选；来源无法确定时，需提供 BV号或视频链接，或明确要求按标题在 B站搜索。
 

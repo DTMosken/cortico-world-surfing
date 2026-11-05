@@ -54,7 +54,7 @@ var SURFING_CONFIG_GROUP = {
 var SURFING_SEARCH_CONFIG_GROUP = {
   id: "world:surfing:search",
   owner: "world:surfing",
-  schema: { type: "object", title: "\u7AD9\u70B9\u641C\u7D22", description: "\u7528\u4E8E surfing_all \u53CA\u5176\u8D34\u5427\u7EED\u641C\uFF0C\u4E0B\u6B21\u8C03\u7528\u751F\u6548\u3002", properties: {
+  schema: { type: "object", title: "\u7AD9\u70B9\u641C\u7D22", description: "\u7528\u4E8E surfing_search_all \u53CA\u5176\u8D34\u5427\u7EED\u641C\uFF0C\u4E0B\u6B21\u8C03\u7528\u751F\u6548\u3002", properties: {
     "worlds.surfing.search.maxResults": {
       type: "integer",
       title: "\u6BCF\u6E90\u663E\u793A\u6761\u6570",
