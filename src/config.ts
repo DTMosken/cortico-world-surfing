@@ -46,7 +46,7 @@ export const SURFING_CONFIG_GROUP: ConfigGroup = {
 
 export const SURFING_SEARCH_CONFIG_GROUP: ConfigGroup = {
   id: 'world:surfing:search', owner: 'world:surfing',
-  schema: { type: 'object', title: '站点搜索', description: '本组设置只影响 surf_all，下次调用生效。', properties: {
+  schema: { type: 'object', title: '站点搜索', description: '用于 surf_all 及其贴吧续搜，下次调用生效。', properties: {
     'worlds.surfing.search.maxResults': {
       type: 'integer', title: '每源显示条数', minimum: 1, maximum: 10,
       'x-suffix': '条', 'x-hot': true, description: '作用于 B站和贴吧。',
