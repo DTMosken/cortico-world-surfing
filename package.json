@@ -2,7 +2,7 @@
   "name": "cortico-world-surfing",
   "version": "0.3.2",
   "type": "module",
-  "description": "读取公开网页正文和 B站视频简介、字幕、评论，支持 B站、贴吧与百科站点搜索、分段续读和可调返回量。",
+  "description": "搜索、上网冲浪、学习最新的知识。读取公开网页正文和B站视频简介、字幕、评论，支持B站、贴吧与百科站点搜索、分段续读。",
   "author": "DTMosken",
   "license": "MIT",
   "keywords": [
@@ -39,7 +39,8 @@
     "describe.json",
     "CHANGELOG.md",
     "AGENTS.md",
-    "CLAUDE.md"
+    "CLAUDE.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
     "test": "node scripts/build-engine.mjs && vitest run",
