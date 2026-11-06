@@ -1,8 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-11-06
 
+- Add `surfing_search_all`, which searches Bilibili, Tieba, Moegirlpedia and Baidu Baike in parallel and returns short results. Open numbered results and further Tieba results with `surfing_read_page`. The WebUI has a switch for each source and a per-source result limit.
+- Merge `surfing_read_bili_info` and `surfing_read_bili_comments` into `surfing_read_bili`. The old tool names are removed; pass `mode: "info"` or `mode: "comments"` instead.
 - Add nbnhhsh abbreviation lookup as the fifth `surfing_search_all` source. It is on by default, including for existing configs without the new setting, and sends every letter and digit fragment of the query to nbnhhsh; turn it off in the site search settings.
+- Add a proxy compatibility mode for Clash-style fake-IP DNS, off by default. When on, reads accept common IPv4 and IPv6 proxy address ranges and optional custom ranges, and the proxy decides the real destination, which can include local or private services. When off, a rejected read explains how to turn it on.
+- Restore the previous value when saving a setting from the WebUI fails.
+- Expand the environment prompt with guidance on source choice, looking up unfamiliar terms, recording how a group uses them and joining game chat. Parts of it derive from `cortico-world-learn-alont1`; the MIT notice ships in `THIRD_PARTY_NOTICES.md`.
 
 ## 0.3.2 - 2026-11-03
 
