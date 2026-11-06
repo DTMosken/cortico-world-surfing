@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-surfing",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "type": "module",
   "description": "搜索、上网冲浪、学习最新的知识。读取公开网页正文和B站视频简介、字幕、评论，支持B站、贴吧与百科站点搜索、缩写释义、分段续读。",
   "author": "DTMosken",
