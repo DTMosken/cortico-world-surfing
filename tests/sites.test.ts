@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import type { WorldContext } from 'cortico/world.ts';
 import { SURFING_DEFAULTS, validateConfig, type SurfingConfigSection } from '../src/config.ts';
-import { PublicClient, waitWithSignal, type GetOptions, type NetworkLimits } from '../src/network.ts';
+import { PublicClient, waitWithSignal, type GetOptions, type NetworkLimits, type PublicResponse } from '../src/network.ts';
 import { SurfingWorld } from '../src/world.ts';
 import { PlatformFixture, receipt } from './platform-fixture.ts';
 
@@ -13,6 +13,15 @@ class SitesFixture extends PlatformFixture {
   pages: Record<number, { posts: unknown[]; hasMore: number }> = { 1: { posts: posts(1, 7), hasMore: 1 }, 2: { posts: posts(2, 1), hasMore: 0 } };
   fail = new Set<string>();
   hang = new Set<string>();
+  posts: Array<{ url: string; payload: unknown; allowed: boolean }> = [];
+  guesses: unknown = [];
+  override async postJson(url: string, payload: unknown, allowHost: (hostname: string) => boolean): Promise<PublicResponse> {
+    const { hostname } = new URL(url);
+    this.urls.push(url);
+    this.posts.push({ url, payload, allowed: allowHost(hostname) });
+    if (this.fail.has(hostname)) return { url, status: 302, headers: {}, body: Buffer.alloc(0) };
+    return { url, status: 200, headers: { 'content-type': 'application/json' }, body: Buffer.from(JSON.stringify(this.guesses)) };
+  }
   override async get(url: string, options: GetOptions = {}) {
     const target = new URL(url);
     this.urls.push(url);
@@ -42,7 +51,8 @@ class FixtureClient extends PublicClient {
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(limits.requestTimeoutMs), ...(parent ? [parent] : [])]);
     return { signal, downloadedBytes: 0, close: () => controller.abort(),
-      get: (url: string, options?: GetOptions) => waitWithSignal(this.fixture.get(url, options), signal) };
+      get: (url: string, options?: GetOptions) => waitWithSignal(this.fixture.get(url, options), signal),
+      postJson: (url: string, payload: unknown, allowHost: (hostname: string) => boolean) => waitWithSignal(this.fixture.postJson(url, payload, allowHost), signal) };
   }
 }
 
@@ -68,7 +78,7 @@ test('多源首搜按来源分组，贴吧和百科共用 pageRef 编号，B站�
   const pageRef = receipt(text).pageRef!;
   expect(text).toBe(`「破防」\npageRef: ${pageRef}\n\n【B站】\n· 第1页 比赛 & 说明｜作者｜1:30｜BV1aa411a7aa\n\n【贴吧】\n`
     + [0, 1, 2, 3, 4].map(i => `· （示例吧）第1页帖子${i} [L${i + 1}]\n  摘要${i}\n`).join('')
-    + '更多贴吧结果 [L6]\n\n【萌娘百科】\n破防：萌娘释义。 [L7]\n\n【百度百科】\n破防：百科释义。 [L8]');
+    + '更多贴吧结果 [L6]\n\n【萌娘百科】\n破防：萌娘释义。 [L7]\n\n【百度百科】\n破防：百科释义。 [L8]\n\n【缩写释义】未识别到字母或数字缩写。');
   expect(text).not.toMatch(/cursor|https?:/);
   await world.stop();
 });
@@ -108,7 +118,7 @@ test('sources 和配置开关决定请求范围，并保持固定来源顺序', 
   expect((await off.call('surfing_search_all', { query: '破防' })).text).toContain('【萌娘百科】');
   await off.world.stop();
 
-  const none = setup(config => { Object.assign(config.search, { bili: false, tieba: false, moegirl: false, baike: false }); });
+  const none = setup(config => { Object.assign(config.search, { bili: false, tieba: false, moegirl: false, baike: false, nbnhhsh: false }); });
   expect((await none.call('surfing_search_all', { query: '破防' })).text).toBe('[tool failed] 所有来源已在配置中关闭。');
   await none.world.stop();
 });
@@ -194,6 +204,65 @@ test('回执超出返回上限时用 pageRef 与 cursor 续读', async () => {
   while (page.nextCursor) { page = receipt((await call('surfing_read_page', { pageRef: ref, cursor: page.nextCursor })).text); all += page.content; }
   expect(all).toContain('破防：百科释义。 [L12]');
   expect(cfg.search.maxResults).toBe(10);
+  await world.stop();
+});
+
+test('缩写释义：混合文本转小写去重后 POST，候选按上游顺序截断，猜测和无匹配分别标明', async () => {
+  const { call, fixture, world } = setup(config => { config.search.maxResults = 2; });
+  fixture.guesses = [{ name: 'yyds', trans: ['永远的神', '有一说一', '第三个'] }, { name: 'nbnhhsh', trans: ['能不能好好说话'] },
+    { name: 'abc', inputting: ['候选甲', '候选乙', '候选丙'] }, { name: 'zzz', trans: null }, { name: 'empty', trans: [] }];
+  const { text, failed } = await call('surfing_search_all', { query: 'YYDS 是什么 nbnhhsh yyds abc zzz empty a', sources: ['nbnhhsh'] });
+  expect(failed).toBeUndefined();
+  expect(text).toBe('「YYDS 是什么 nbnhhsh yyds abc zzz empty a」\n\n【缩写释义】\nyyds：永远的神、有一说一（共3个，显示前2个）\nnbnhhsh：能不能好好说话\n'
+    + 'abc：可能是 候选甲、候选乙（共3个，显示前2个）\nzzz：无匹配\nempty：无匹配');
+  expect(fixture.posts).toEqual([{ url: 'https://lab.magiconch.com/api/nbnhhsh/guess', allowed: true, payload: { text: 'yyds,nbnhhsh,abc,zzz,empty' } }]);
+  await world.stop();
+});
+
+test('缩写释义：纯中文不请求，全部未命中逐词列出，重定向和关闭都留在本组，其他来源不受影响', async () => {
+  const { call, cfg, fixture, world } = setup();
+  expect((await call('surfing_search_all', { query: '破防', sources: ['nbnhhsh'] })).text).toBe('【缩写释义】未识别到字母或数字缩写。');
+  expect(fixture.posts).toEqual([]);
+
+  fixture.guesses = [{ name: 'zzz', trans: null }, { name: 'qqq', inputting: [] }];
+  expect((await call('surfing_search_all', { query: 'zzz qqq', sources: ['nbnhhsh'] })).text).toBe('「zzz qqq」\n\n【缩写释义】\nzzz：无匹配\nqqq：无匹配');
+
+  fixture.fail.add('lab.magiconch.com');
+  const partial = (await call('surfing_search_all', { query: '破防 yyds', sources: ['baike', 'nbnhhsh'] })).text;
+  expect(partial).toContain('破防：百科释义。 [L1]');
+  expect(partial).toContain('【缩写释义】访问受限。');
+  fixture.fail.clear();
+
+  fixture.posts = [];
+  cfg.search.nbnhhsh = false;
+  expect((await call('surfing_search_all', { query: 'yyds', sources: ['nbnhhsh'] })).text).toBe('【缩写释义】已在配置中关闭。');
+  expect((await call('surfing_search_all', { query: 'yyds', sources: ['baike'] })).text).not.toContain('缩写释义');
+  expect(fixture.posts).toEqual([]);
+  await world.stop();
+});
+
+test('无编号的回执超出返回上限时，页脚给 pageRef，cursor 续读到尾；放得下时不带', async () => {
+  const { call, fixture, world } = setup(config => { config.reading.maxResponseEstimatedTokens = 1024; config.search.maxResults = 10; });
+  const words = Array.from({ length: 60 }, (_, i) => `w${i}`);
+  fixture.guesses = words.map(name => ({ name, trans: Array.from({ length: 10 }, (_, i) => `${name}候选${i}`.padEnd(30, '释')) }));
+  const first = await call('surfing_search_all', { query: words.join(' '), sources: ['nbnhhsh'] });
+  let page = receipt(first.text);
+  const ref = page.pageRef;
+  expect(ref).toBeTruthy();
+  expect(first.text.split('\n\n')[0]).not.toContain('pageRef');
+  let all = page.content;
+  let pages = 1;
+  while (page.nextCursor) {
+    const next = (await call('surfing_read_page', { pageRef: ref, cursor: page.nextCursor })).text;
+    page = receipt(next); all += page.content; pages++;
+  }
+  expect(pages).toBeGreaterThan(1);
+  for (const word of words) expect(all).toContain(`${word}：${word}候选0`);
+  expect(page.text).not.toContain('pageRef');
+  expect(fixture.posts).toHaveLength(1);
+
+  fixture.guesses = [{ name: 'yyds', trans: ['永远的神'] }];
+  expect((await call('surfing_search_all', { query: 'yyds', sources: ['nbnhhsh'] })).text).toBe('「yyds」\n\n【缩写释义】\nyyds：永远的神');
   await world.stop();
 });
 

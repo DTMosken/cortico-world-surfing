@@ -1,8 +1,8 @@
-import { requestHeaders, type GetOptions, type ReadOperation } from '../src/network.ts';
+import { requestHeaders, type GetOptions, type PublicResponse, type ReadOperation } from '../src/network.ts';
 
 export function receipt(text: string) {
   const start = text.indexOf('\n\n');
-  const footer = /\n\n(?=(?:标题信息已截短|仅取得静态网页文本|材料触及保留上限|续读 cursor:))/.exec(text.slice(start + 2));
+  const footer = /\n\n(?=(?:标题信息已截短|仅取得静态网页文本|材料触及保留上限|pageRef:|续读 cursor:))/.exec(text.slice(start + 2));
   const content = text.slice(start + 2, footer ? start + 2 + footer.index : undefined);
   return { text, content, pageRef: /^pageRef: ([\w.-]+)$/m.exec(text)?.[1], nextCursor: /续读 cursor: ([\w.-]+)$/.exec(text)?.[1] };
 }
@@ -34,6 +34,7 @@ export class PlatformFixture implements ReadOperation {
   commentsJson?: unknown;
   commentBody = '评论原文。';
   close() {}
+  async postJson(_url: string, _payload: unknown, _allowHost: (hostname: string) => boolean): Promise<PublicResponse> { throw new Error('fixture network offline'); }
   async get(url: string, options: GetOptions = {}) {
     this.requests++;
     if (this.offline) throw new Error('fixture network offline');

@@ -852,7 +852,7 @@ var SURFING_DEFAULTS = {
   bili: { subtitleGroupSec: 30, maxSubtitleRetries: 2, subtitleRetryDelayMs: 1e3 },
   network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 2e4, proxyCompatibility: false, customProxyRanges: "" },
   cache: { ttlMs: 9e5, maxBytes: 32 * 1024 * 1024 },
-  search: { bili: true, tieba: true, moegirl: true, baike: true, maxResults: 5 }
+  search: { bili: true, tieba: true, moegirl: true, baike: true, nbnhhsh: true, maxResults: 5 }
 };
 var SURFING_CONFIG_GROUP = {
   id: "world:surfing",
@@ -908,12 +908,13 @@ var SURFING_SEARCH_CONFIG_GROUP = {
       maximum: 10,
       "x-suffix": "\u6761",
       "x-hot": true,
-      description: "\u4F5C\u7528\u4E8E B\u7AD9\u548C\u8D34\u5427\u3002"
+      description: "\u4F5C\u7528\u4E8E B\u7AD9\u3001\u8D34\u5427\u548C\u6BCF\u4E2A\u7F29\u5199\u7684\u5019\u9009\u6570\u3002"
     },
     "worlds.surfing.search.bili": { type: "boolean", title: "B\u7AD9", "x-hot": true },
     "worlds.surfing.search.tieba": { type: "boolean", title: "\u8D34\u5427", "x-hot": true },
     "worlds.surfing.search.moegirl": { type: "boolean", title: "\u840C\u5A18\u767E\u79D1", "x-hot": true },
-    "worlds.surfing.search.baike": { type: "boolean", title: "\u767E\u5EA6\u767E\u79D1", "x-hot": true }
+    "worlds.surfing.search.baike": { type: "boolean", title: "\u767E\u5EA6\u767E\u79D1", "x-hot": true },
+    "worlds.surfing.search.nbnhhsh": { type: "boolean", title: "\u7F29\u5199\u91CA\u4E49", "x-hot": true }
   } }
 };
 var SURFING_PROXY_CONFIG_GROUP = {
@@ -1063,11 +1064,13 @@ async function mount(ctx) {
     grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px 24px";
     const saved = ui.msgline("");
     const toggles = ui.h("div", "segwrap umulti");
+    toggles.style.flexWrap = "wrap";
     for (const [path, property] of Object.entries(group.schema.properties)) {
       const save = (value, apply) => saveValue(path, property.title, saved, value, apply);
       if (property.type === "boolean") {
         const toggle = ui.h("button", "seg", property.title);
         toggle.type = "button";
+        toggle.style.whiteSpace = "nowrap";
         showPressed(toggle, state.values[path] === true);
         toggle.addEventListener("click", () => {
           const value = !toggle.classList.contains("active");

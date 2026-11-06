@@ -4,7 +4,7 @@ export function fixtureOperation(html: string, requestTimeoutMs = 20000): ReadOp
   const guarded = new PublicClient(async()=>[{address:'127.0.0.1',family:4}])
     .operation({requestTimeoutMs,maxDownloadBytes:8*1024*1024});
   const requests: string[] = [];
-  return {signal:guarded.signal,downloadedBytes:0,requests,close:()=>guarded.close(),
+  return {signal:guarded.signal,downloadedBytes:0,requests,close:()=>guarded.close(),postJson:(url,payload,allowHost)=>guarded.postJson(url,payload,allowHost),
     async get(input,options) {
       const url = new URL(input);
       if (url.hostname !== 'example.org') return guarded.get(input,options);

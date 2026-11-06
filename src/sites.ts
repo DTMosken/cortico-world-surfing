@@ -4,10 +4,11 @@ import type { BiliClient } from './bili.ts';
 import { ReadError, asReadError, type ReadOperation } from './network.ts';
 import type { Material, TiebaMore, TiebaPost, Unit } from './snapshots.ts';
 
-export const SITE_SOURCES = ['bili', 'tieba', 'moegirl', 'baike'] as const;
+export const SITE_SOURCES = ['bili', 'tieba', 'moegirl', 'baike', 'nbnhhsh'] as const;
 type SiteSource = typeof SITE_SOURCES[number];
-const LABELS: Record<SiteSource, string> = { bili: 'B站', tieba: '贴吧', moegirl: '萌娘百科', baike: '百度百科' };
+const LABELS: Record<SiteSource, string> = { bili: 'B站', tieba: '贴吧', moegirl: '萌娘百科', baike: '百度百科', nbnhhsh: '缩写释义' };
 const TIEBA_SEARCH = 'https://tieba.baidu.com/mo/q/search/thread';
+const NBNHHSH_GUESS = 'https://lab.magiconch.com/api/nbnhhsh/guess';
 
 interface Entry { text: string; url?: string; note?: string }
 interface TiebaPage { posts: TiebaPost[]; page: number; hasMore: boolean }
@@ -57,6 +58,21 @@ async function baike(query: string, operation: ReadOperation): Promise<Entry[]> 
   return result.title ? definition(result.title, result.abstract, result.wapUrl) : [];
 }
 
+async function nbnhhsh(query: string, limit: number, operation: ReadOperation): Promise<Entry[]> {
+  const words = [...new Set(query.match(/[a-z0-9]{2,}/ig)?.map(word => word.toLowerCase()))];
+  if (!words.length) throw new ReadError('invalid_input', '未识别到字母或数字缩写。');
+  const response = await operation.postJson(NBNHHSH_GUESS, { text: words.join(',') }, host => host === 'lab.magiconch.com');
+  if (response.status !== 200) throw new ReadError('access_denied', '访问受限。');
+  const results: Array<{ name: string; trans?: string[] | null; inputting?: string[] | null }> = JSON.parse(response.body.toString('utf8'));
+  return results.map(({ name, trans, inputting }) => {
+    const found = trans?.length ? trans : inputting ?? [];
+    if (!found.length) return { text: `${short(name, 30)}：无匹配` };
+    const shown = found.slice(0, limit).map(candidate => short(candidate, 30)).join('、');
+    const total = found.length > limit ? `（共${found.length}个，显示前${limit}个）` : '';
+    return { text: `${short(name, 30)}：${trans?.length ? '' : '可能是 '}${shown}${total}` };
+  });
+}
+
 function material(query: string, title: string, groups: Group[], labelled: boolean): Material {
   const units: Unit[] = [];
   const links: Record<string, string> = {};
@@ -88,7 +104,7 @@ function material(query: string, title: string, groups: Group[], labelled: boole
 export async function searchSites(query: string, requested: unknown, config: SurfingConfigSection['search'],
   bili: BiliClient, operation: ReadOperation): Promise<Material> {
   if (requested !== undefined && (!Array.isArray(requested) || !requested.length || requested.some(source => !SITE_SOURCES.includes(source))))
-    throw new ReadError('invalid_input', 'sources 需为 bili、tieba、moegirl、baike 中的一个或多个。');
+    throw new ReadError('invalid_input', 'sources 需为 bili、tieba、moegirl、baike、nbnhhsh 中的一个或多个。');
   const selected = SITE_SOURCES.filter(source => requested ? (requested as unknown[]).includes(source) : config[source]);
   if (!selected.length) throw new ReadError('invalid_input', '所有来源已在配置中关闭。');
   const limit = config.maxResults;
@@ -98,6 +114,7 @@ export async function searchSites(query: string, requested: unknown, config: Sur
     tieba: async () => tiebaEntries(query, await tiebaPage(query, 1, operation), limit),
     moegirl: async () => ({ entries: await moegirl(query, operation) }),
     baike: async () => ({ entries: await baike(query, operation) }),
+    nbnhhsh: async () => ({ entries: await nbnhhsh(query, limit, operation) }),
   };
   const groups = await Promise.all(selected.map(async (source): Promise<Group> => {
     const label = LABELS[source];

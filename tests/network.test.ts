@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { expect, test } from 'vitest';
+import type { AddressInfo } from 'node:net';
 import { PublicClient, validatePublicUrl, isPublicAddress, requestHeaders } from '../src/network.ts';
 
 test('匿名请求过滤 Cookie 和认证头，保留允许的阅读头', () => {
@@ -53,3 +54,39 @@ test('对正在监听的本地服务也不建立连接', async () => {
     operation.close();
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+
+async function withPostServer(run: (url: string, seen: Array<{ method: string; path: string; type?: string; cookie?: string; body: string }>) => Promise<void>) {
+  const seen: Array<{ method: string; path: string; type?: string; cookie?: string; body: string }> = [];
+  const server = createServer(async (request, response) => {
+    let body = '';
+    for await (const chunk of request) body += chunk;
+    seen.push({ method: request.method!, path: request.url!, type: request.headers['content-type'], cookie: request.headers.cookie, body });
+    if (request.url === '/moved') { response.writeHead(302, { location: '/next' }).end(); return; }
+    response.end(request.url === '/large' ? 'x'.repeat(8192) : '[]');
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try { await run(`http://example.org:${(server.address() as AddressInfo).port}`, seen); } finally { server.close(); }
+}
+const local = { proxyCompatibility: true, customProxyRanges: '127.0.0.0/8', requestTimeoutMs: 3000, maxDownloadBytes: 4096 };
+const loopback = () => new PublicClient(async () => [{ address: '127.0.0.1', family: 4 }]);
+const anyHost = () => true;
+
+test('postJson 发送一次 JSON 请求体，不带 Cookie', () => withPostServer(async (url, seen) => {
+  const response = await loopback().operation(local).postJson(`${url}/guess`, { text: 'yyds,好' }, anyHost);
+  expect(response.status).toBe(200);
+  expect(seen).toEqual([{ method: 'POST', path: '/guess', type: 'application/json', cookie: undefined, body: '{"text":"yyds,好"}' }]);
+}));
+
+test('postJson 遇到 302 原样返回，不跟随也不重发', () => withPostServer(async (url, seen) => {
+  expect((await loopback().operation(local).postJson(`${url}/moved`, {}, anyHost)).status).toBe(302);
+  expect(seen.map(request => request.path)).toEqual(['/moved']);
+}));
+
+test('postJson 复用站点范围、地址核验和下载上限', () => withPostServer(async (url, seen) => {
+  await expect(loopback().operation(local).postJson(`${url}/guess`, {}, () => false)).rejects.toMatchObject({ kind: 'address_denied' });
+  await expect(loopback().operation({ requestTimeoutMs: 3000, maxDownloadBytes: 4096 }).postJson(`${url}/guess`, {}, anyHost)).rejects.toMatchObject({ kind: 'address_denied' });
+  await expect(loopback().operation(local).postJson('http://127.0.0.1/guess', {}, anyHost)).rejects.toMatchObject({ kind: 'address_denied' });
+  expect(seen).toEqual([]);
+  await expect(loopback().operation(local).postJson(`${url}/large`, {}, anyHost)).rejects.toMatchObject({ kind: 'source_limit' });
+}));

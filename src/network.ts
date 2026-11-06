@@ -32,6 +32,8 @@ export interface ReadOperation {
   readonly signal: AbortSignal;
   readonly downloadedBytes: number;
   get(url: string, options?: GetOptions): Promise<PublicResponse>;
+  /** Sends once and returns a redirect response as is, so the body never reaches a second host. */
+  postJson(url: string, payload: unknown, allowHost: (hostname: string) => boolean): Promise<PublicResponse>;
   close(): void;
 }
 
@@ -116,14 +118,7 @@ class Operation implements ReadOperation {
     try {
       let url = validatePublicUrl(input);
       for (let hops = 0; hops <= 5; hops++) {
-        this.signal.throwIfAborted();
-        if (options.allowHost && !options.allowHost(url.hostname)) throw new ReadError('address_denied', '目标站点不在本次读取范围内。');
-        const addresses = await waitWithSignal(this.resolve(url.hostname), this.signal);
-        const denied = addresses.filter(a => !isPublicAddress(a.address));
-        if (!addresses.length || denied.some(a => !inAddressRanges(a.address, this.proxyRanges)))
-          throw new ReadError('address_denied', addressDeniedMessage(denied, this.limits.proxyCompatibility));
-        const selected = addresses.find(a => a.family === 4) ?? addresses[0];
-        const response = await this.request(url, selected, options);
+        const response = await this.send(url, options);
         if (![301, 302, 303, 307, 308].includes(response.status)) return response;
         if (!response.headers.location) throw new ReadError('protocol_error', '重定向缺少目标地址。');
         if (hops === 5) throw new ReadError('access_denied', '重定向次数超出限制。');
@@ -133,11 +128,26 @@ class Operation implements ReadOperation {
     } catch (error) { throw asReadError(error); }
   }
 
-  private request(url: URL, selected: Address, options: GetOptions): Promise<PublicResponse> {
-    const headers = requestHeaders(options);
+  async postJson(input: string, payload: unknown, allowHost: (hostname: string) => boolean): Promise<PublicResponse> {
+    try { return await this.send(validatePublicUrl(input), { allowHost }, JSON.stringify(payload)); }
+    catch (error) { throw asReadError(error); }
+  }
+
+  private async send(url: URL, options: GetOptions, body?: string): Promise<PublicResponse> {
+    this.signal.throwIfAborted();
+    if (options.allowHost && !options.allowHost(url.hostname)) throw new ReadError('address_denied', '目标站点不在本次读取范围内。');
+    const addresses = await waitWithSignal(this.resolve(url.hostname), this.signal);
+    const denied = addresses.filter(a => !isPublicAddress(a.address));
+    if (!addresses.length || denied.some(a => !inAddressRanges(a.address, this.proxyRanges)))
+      throw new ReadError('address_denied', addressDeniedMessage(denied, this.limits.proxyCompatibility));
+    return this.request(url, addresses.find(a => a.family === 4) ?? addresses[0], options, body);
+  }
+
+  private request(url: URL, selected: Address, options: GetOptions, body?: string): Promise<PublicResponse> {
+    const headers = { ...requestHeaders(options), ...(body === undefined ? {} : { 'content-type': 'application/json' }) };
     return new Promise((resolve, reject) => {
       const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
-        method: 'GET', headers, agent: false, signal: this.signal, family: selected.family,
+        method: body === undefined ? 'GET' : 'POST', headers, agent: false, signal: this.signal, family: selected.family,
         lookup: (_hostname, _options, callback) => callback(null, selected.address, selected.family),
       }, response => {
         const status = response.statusCode ?? 0;
@@ -183,7 +193,7 @@ class Operation implements ReadOperation {
         if (socket.remoteAddress) verify(); else socket.once('connect', verify);
       });
       request.on('error', reject);
-      request.end();
+      request.end(body);
     });
   }
 }
