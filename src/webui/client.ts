@@ -69,11 +69,13 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     grid.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px 24px';
     const saved = ui.msgline('');
     const toggles = ui.h('div', 'segwrap umulti');
+    toggles.style.flexWrap = 'wrap';
     for (const [path, property] of Object.entries(group.schema.properties)) {
       const save = (value: number | boolean, apply?: (next: ConfigValue) => void): void => saveValue(path, property.title, saved, value, apply);
       if (property.type === 'boolean') {
         const toggle = ui.h('button', 'seg', property.title);
         toggle.type = 'button';
+        toggle.style.whiteSpace = 'nowrap';
         showPressed(toggle, state.values[path] === true);
         toggle.addEventListener('click', () => {
           const value = !toggle.classList.contains('active');
