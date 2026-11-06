@@ -1,10 +1,11 @@
-/** Public DNS results are pinned to each socket; redirects repeat the same checks. */
+/** Allowed DNS results are pinned to each socket; redirects repeat the same checks. */
 import { lookup } from 'node:dns/promises';
 import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { isIP } from 'node:net';
 import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
 import ipaddr from 'ipaddr.js';
+import { commonProxyRanges, inAddressRanges, parseAddressRanges, type AddressRange } from './address-ranges.ts';
 export type FailureKind = 'invalid_input' | 'address_denied' | 'access_denied' | 'not_found'
   | 'no_subtitle' | 'timeout' | 'network_error' | 'protocol_error' | 'source_limit'
   | 'cursor_expired' | 'cursor_mismatch' | 'content_unavailable' | 'browser_unavailable';
@@ -20,7 +21,7 @@ export function asReadError(error: unknown): ReadError {
   return new ReadError('network_error', '读取失败，未取得可用文本。');
 }
 
-export interface NetworkLimits { requestTimeoutMs: number; maxDownloadBytes: number }
+export interface NetworkLimits { requestTimeoutMs: number; maxDownloadBytes: number; proxyCompatibility?: boolean; customProxyRanges?: string }
 export interface Address { address: string; family: number }
 export type Resolver = (hostname: string) => Promise<Address[]>;
 export interface PublicResponse { url: string; status: number; headers: Record<string, string>; body: Buffer }
@@ -53,6 +54,15 @@ export function isPublicAddress(address: string): boolean {
     if (parsed.range() !== 'unicast') return false;
     return parsed.kind() === 'ipv4' || parsed.match(ipaddr.parse('2000::'), 3);
   } catch { return false; }
+}
+
+function addressDeniedMessage(denied: Address[], proxyCompatibility?: boolean): string {
+  if (denied.length && proxyCompatibility)
+    return '这个网址解析到了未放行的内网或保留地址，所以没有读取。只有确认这是你改过的代理地址池时，才需要把它加入自定义地址范围；否则请检查网址和代理设置。';
+  const common = commonProxyRanges();
+  if (denied.length && denied.every(a => inAddressRanges(a.address, common)))
+    return '这个网址解析到了代理常用的虚拟地址，所以没有读取。如果正在使用 Clash 等代理，可以在网上冲浪设置中开启代理兼容模式后重试。';
+  return '域名未解析到允许的公网地址。';
 }
 
 export function waitWithSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -91,11 +101,13 @@ export class PublicClient {
 
 class Operation implements ReadOperation {
   private readonly controller = new AbortController();
+  private readonly proxyRanges: AddressRange[];
   readonly signal: AbortSignal;
   downloadedBytes = 0;
 
   constructor(private readonly resolve: Resolver, private readonly limits: NetworkLimits, parent?: AbortSignal) {
     this.signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(limits.requestTimeoutMs), ...(parent ? [parent] : [])]);
+    this.proxyRanges = limits.proxyCompatibility ? [...commonProxyRanges(), ...parseAddressRanges(limits.customProxyRanges ?? '')] : [];
   }
 
   close(): void { this.controller.abort(); }
@@ -107,8 +119,9 @@ class Operation implements ReadOperation {
         this.signal.throwIfAborted();
         if (options.allowHost && !options.allowHost(url.hostname)) throw new ReadError('address_denied', '目标站点不在本次读取范围内。');
         const addresses = await waitWithSignal(this.resolve(url.hostname), this.signal);
-        if (!addresses.length || addresses.some(a => !isPublicAddress(a.address)))
-          throw new ReadError('address_denied', '域名未解析到允许的公网地址。');
+        const denied = addresses.filter(a => !isPublicAddress(a.address));
+        if (!addresses.length || denied.some(a => !inAddressRanges(a.address, this.proxyRanges)))
+          throw new ReadError('address_denied', addressDeniedMessage(denied, this.limits.proxyCompatibility));
         const selected = addresses.find(a => a.family === 4) ?? addresses[0];
         const response = await this.request(url, selected, options);
         if (![301, 302, 303, 307, 308].includes(response.status)) return response;

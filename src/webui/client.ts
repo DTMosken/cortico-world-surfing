@@ -1,9 +1,14 @@
 import type { WebUiClientBundle, WebUiPanelContext } from 'cortico/web/shared/client-panel.ts';
-import { SURFING_CONFIG_GROUPS, SURFING_LIMITS_CONFIG_GROUP, SURFING_MICROLINK_SECRET } from '../config.ts';
+import { PROXY_MODE_PATH, PROXY_RANGES_PATH, SURFING_CONFIG_GROUPS, SURFING_LIMITS_CONFIG_GROUP, SURFING_MICROLINK_SECRET, SURFING_PROXY_CONFIG_GROUP } from '../config.ts';
 
-interface ConfigState { values: Record<string, number | boolean>; keySet: boolean }
+type ConfigValue = number | boolean | string;
+interface ConfigState { values: Record<string, ConfigValue>; keySet: boolean }
 
 const errorText = (error: unknown): string => error instanceof Error ? error.message : '操作失败';
+const showPressed = (toggle: HTMLButtonElement, enabled: boolean): void => {
+  toggle.classList.toggle('active', enabled);
+  toggle.setAttribute('aria-pressed', String(enabled));
+};
 
 async function mount(ctx: WebUiPanelContext): Promise<void> {
   const { ui } = ctx;
@@ -11,7 +16,52 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
   const layout = ui.h('div');
   layout.style.cssText = 'display:grid;gap:20px;max-width:960px;margin:auto';
   let saves: Promise<void> = Promise.resolve();
+  const saveValue = (path: string, title: string, saved: HTMLElement, value: ConfigValue, apply?: (next: ConfigValue) => void): void => {
+    saves = saves.then(async () => {
+      const next = (await ctx.invoke<ConfigState>('save', [path, value])).values[path]!;
+      apply?.(next);
+      saved.textContent = `已保存：${title}`; saved.classList.remove('bad');
+      void ctx.refresh().catch(() => undefined);
+    }).catch(error => { saved.textContent = errorText(error); saved.classList.add('bad'); });
+  };
+  const proxySheet = (): HTMLElement => {
+    const { schema } = SURFING_PROXY_CONFIG_GROUP;
+    const mode = schema.properties[PROXY_MODE_PATH]!;
+    const ranges = schema.properties[PROXY_RANGES_PATH]!;
+    const sheet = ui.sheet({ title: schema.title, desc: schema.description });
+    const saved = ui.msgline('');
+    const toggle = ui.h('input', 'connection-switch');
+    toggle.type = 'checkbox';
+    toggle.setAttribute('role', 'switch');
+    toggle.checked = state.values[PROXY_MODE_PATH] === true;
+    toggle.addEventListener('click', event => {
+      event.preventDefault();
+      saveValue(PROXY_MODE_PATH, mode.title, saved, toggle.checked, next => { toggle.checked = next === true; });
+    }, { signal: ctx.signal });
+    const note = ui.h('small', 'muted', mode.description);
+    note.id = 'surfing-proxy-mode-note';
+    toggle.setAttribute('aria-describedby', note.id);
+    const field = ui.field(mode.title, toggle);
+    field.classList.add('connection-toggle');
+    field.querySelector<HTMLElement>('.fieldlabel')!.style.color = 'var(--warn)';
+    const row = ui.h('div', 'connection-step');
+    row.append(field, note);
+
+    const advanced = ui.foldSheet('surfing-proxy-advanced', { title: '高级设置', defaultOpen: false });
+    const rangesSaved = ui.msgline('');
+    const input = ui.textarea({ cls: 'mono', rows: 4, value: String(state.values[PROXY_RANGES_PATH]),
+      onChange: value => saveValue(PROXY_RANGES_PATH, ranges.title, rangesSaved, value) });
+    const rangesNote = ui.h('small', 'muted', ranges.description);
+    rangesNote.id = 'surfing-proxy-ranges-note';
+    input.setAttribute('aria-describedby', rangesNote.id);
+    const rangesField = ui.field(ranges.title, input);
+    rangesField.querySelector<HTMLElement>('.fieldlabel')!.style.color = 'var(--warn)';
+    advanced.body.append(rangesField, rangesNote, rangesSaved);
+    sheet.body.append(row, saved, advanced.el);
+    return sheet.el;
+  };
   for (const group of SURFING_CONFIG_GROUPS) {
+    if (group === SURFING_PROXY_CONFIG_GROUP) { layout.append(proxySheet()); continue; }
     const sheet = group === SURFING_LIMITS_CONFIG_GROUP
       ? ui.foldSheet('surfing-limits', { title: group.schema.title, defaultOpen: false })
       : ui.sheet({ title: group.schema.title });
@@ -20,25 +70,14 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     const saved = ui.msgline('');
     const toggles = ui.h('div', 'segwrap umulti');
     for (const [path, property] of Object.entries(group.schema.properties)) {
-      const save = (value: number | boolean, apply?: (next: number | boolean) => void): void => {
-        saves = saves.then(async () => {
-          const next = (await ctx.invoke<ConfigState>('save', [path, value])).values[path]!;
-          apply?.(next);
-          saved.textContent = `已保存：${property.title}`; saved.classList.remove('bad');
-          void ctx.refresh().catch(() => undefined);
-        }).catch(error => { saved.textContent = errorText(error); saved.classList.add('bad'); });
-      };
+      const save = (value: number | boolean, apply?: (next: ConfigValue) => void): void => saveValue(path, property.title, saved, value, apply);
       if (property.type === 'boolean') {
         const toggle = ui.h('button', 'seg', property.title);
         toggle.type = 'button';
-        const show = (enabled: boolean): void => {
-          toggle.classList.toggle('active', enabled);
-          toggle.setAttribute('aria-pressed', String(enabled));
-        };
-        show(state.values[path] === true);
+        showPressed(toggle, state.values[path] === true);
         toggle.addEventListener('click', () => {
           const value = !toggle.classList.contains('active');
-          show(value);
+          showPressed(toggle, value);
           save(value);
         }, { signal: ctx.signal });
         toggles.append(toggle);

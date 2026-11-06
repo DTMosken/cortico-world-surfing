@@ -7,7 +7,12 @@ import { Readability } from "@mozilla/readability";
 
 // src/network.ts
 import { isIP } from "node:net";
+import ipaddr2 from "ipaddr.js";
+
+// src/address-ranges.ts
 import ipaddr from "ipaddr.js";
+
+// src/network.ts
 var ReadError = class extends Error {
   constructor(kind, message) {
     super(message);

@@ -4,7 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { coerceGroupValues } from 'cortico/core/config-schema.ts';
 import type { ToolDef, ToolSpec, ToolOutcome, ToolCallContext, World, WorldWebUiDecl, WorldHost } from 'cortico/core/types.ts';
 import type { WorldContext } from 'cortico/world.ts';
-import { SURFING_CONFIG_GROUPS, SURFING_MICROLINK_SECRET, applyConfigDefaults, configValue, validateConfig, type SurfingConfigSection } from './config.ts';
+import { PROXY_RANGES_PATH, SURFING_CONFIG_GROUPS, SURFING_MICROLINK_SECRET, applyConfigDefaults, configValue, validateConfig, type SurfingConfigSection } from './config.ts';
+import { parseAddressRanges } from './address-ranges.ts';
 import { BiliClient, biliKey, biliCommentsKey, type BiliInput, type BiliCommentsInput } from './bili.ts';
 import { ReadError, asReadError, PublicClient, waitWithSignal, type ReadOperation } from './network.ts';
 import { PageReader, pageKey } from './page-reader.ts';
@@ -217,8 +218,13 @@ export class SurfingWorld implements World {
     const key = path as string;
     const result = coerceGroupValues(group, { [key]: value });
     if ('error' in result) throw new Error(result.error);
+    if (key === PROXY_RANGES_PATH) parseAddressRanges(result.values[key] as string);
     const [section, field] = key.split('.').slice(2);
-    this.ctx.persist({ [section]: { [field]: result.values[key] } });
+    // The host updates cfg before writing the file, so a failed write must not leave the new value in memory.
+    const values = (this.ctx.cfg as unknown as Record<string, Record<string, unknown>>)[section]!;
+    const previous = values[field];
+    try { this.ctx.persist({ [section]: { [field]: result.values[key] } }); }
+    catch (error) { values[field] = previous; throw error; }
   }
 
   webUi(): WorldWebUiDecl {
