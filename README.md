@@ -417,6 +417,7 @@ fd00:1234::/64
 ## 许可
 
 MIT License，见 [LICENSE](LICENSE)。
+内置环境提示词的部分内容与设计借鉴自 [cortico-world-learn-alont1](https://www.npmjs.com/package/cortico-world-learn-alont1)（MIT），并针对 Surfing 的工具与阅读流程进行了调整。上游版权及许可声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 ## Cortico 0.2.1
 
