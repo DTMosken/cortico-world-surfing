@@ -2,7 +2,7 @@
   "tools": [
     {
       "name": "surfing_read_page",
-      "description": "读取公开网页正文：提供 URL 初读，或用原页 pageRef 与 linkId 打开正文编号链接；用目标页 pageRef 与 cursor 续读。打开链接时不带 cursor。返回预算内原文，仅接受公开域名，支持 URL 章节锚点。",
+      "description": "读取公开网页和 surfing_search_all 回执。url 初读网页；pageRef 与 linkId 打开回执中的编号，网页链接、帖子和词条打开原文，“更多贴吧结果”返回下一批结果，不带 cursor；pageRef 与 cursor 续读当前材料。返回预算内原文，仅接受公开域名，支持 URL 章节锚点。",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -57,12 +57,12 @@
           "pageRef": {
             "type": "string",
             "maxLength": 256,
-            "description": "网页回执中的 pageRef；打开链接时用原页引用，续读时用目标页引用。"
+            "description": "网页或 surfing_search_all 回执中的 pageRef；打开链接时用原页引用，续读时用目标页引用。"
           },
           "linkId": {
             "type": "string",
             "pattern": "^L[1-9][0-9]*$",
-            "description": "打开正文中的链接编号，如 L1；需配合原页 pageRef，不带 cursor。"
+            "description": "打开回执中的编号，如 L1；需配合该回执的 pageRef，不带 cursor。"
           },
           "cursor": {
             "type": "string",
@@ -77,138 +77,7 @@
     },
     {
       "name": "surfing_read_bili",
-      "description": "匿名读取 B站视频人工或 AI 字幕。提供 BV 或视频链接即可；可指定 cid 或 URL 中的 p 选择分P。回执为字幕原文片段，未取得字幕不代表无音频。",
-      "parameters": {
-        "type": "object",
-        "additionalProperties": false,
-        "anyOf": [
-          {
-            "required": [
-              "bvid"
-            ]
-          },
-          {
-            "required": [
-              "aid"
-            ]
-          },
-          {
-            "required": [
-              "url"
-            ]
-          }
-        ],
-        "properties": {
-          "bvid": {
-            "type": "string",
-            "pattern": "^BV[0-9A-Za-z]{10}$",
-            "description": "视频 BV号。"
-          },
-          "aid": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "稿件 aid；不知道时只给 BV 或 URL。"
-          },
-          "url": {
-            "type": "string",
-            "maxLength": 8192,
-            "description": "B站视频长链或 b23.tv 短链，可直接使用分享卡片中的链接。"
-          },
-          "cid": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "特定分P的 cid；省略时按 URL 的 p 或第1P读取。"
-          },
-          "cursor": {
-            "type": "string",
-            "maxLength": 256,
-            "description": "沿用回执末尾的续读 cursor。"
-          }
-        }
-      },
-      "tags": [
-        "read"
-      ]
-    },
-    {
-      "name": "surfing_search_bili",
-      "description": "独立搜索 B站视频，返回标题、BV、UP主与时长。明确要求找视频时调用；查梗或概念可使用“关键词 梗知识”。可用 cursor 继续。",
-      "parameters": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "query"
-        ],
-        "properties": {
-          "query": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 240
-          },
-          "cursor": {
-            "type": "string",
-            "maxLength": 256,
-            "description": "沿用回执末尾的续读 cursor。"
-          }
-        }
-      },
-      "tags": [
-        "read"
-      ]
-    },
-    {
-      "name": "surfing_read_bili_info",
-      "description": "匿名读取 B站视频简介原文、标题、UP主和分P目录，无需字幕。提供 BV、aid 或视频链接；沿用目标参数和 cursor 续读。",
-      "parameters": {
-        "type": "object",
-        "additionalProperties": false,
-        "anyOf": [
-          {
-            "required": [
-              "bvid"
-            ]
-          },
-          {
-            "required": [
-              "aid"
-            ]
-          },
-          {
-            "required": [
-              "url"
-            ]
-          }
-        ],
-        "properties": {
-          "bvid": {
-            "type": "string",
-            "pattern": "^BV[0-9A-Za-z]{10}$",
-            "description": "视频 BV号。"
-          },
-          "aid": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "稿件 aid；不知道时只给 BV 或 URL。"
-          },
-          "url": {
-            "type": "string",
-            "maxLength": 8192,
-            "description": "B站视频长链或 b23.tv 短链，可直接使用分享卡片中的链接。"
-          },
-          "cursor": {
-            "type": "string",
-            "maxLength": 256,
-            "description": "沿用回执末尾的续读 cursor。"
-          }
-        }
-      },
-      "tags": [
-        "read"
-      ]
-    },
-    {
-      "name": "surfing_read_bili_comments",
-      "description": "匿名读取 B站视频评论原文、作者、时间、点赞数和 rpid，默认热门排序，含置顶和楼中楼预览。用 root 指定根评论 rpid 读取楼中楼，不带 sort。沿用目标、sort、root 和 cursor 续读，按需取得后续评论。平台限制按回执说明。",
+      "description": "匿名读取 B站视频材料，提供 BV、aid 或视频链接。mode 默认 subtitles，读人工或 AI 字幕原文，可用 cid 或 URL 中的 p 选择分P，未取得字幕不代表无音频；info 读简介、标题、UP主和分P目录；comments 读评论原文、作者、时间、点赞数和 rpid，含置顶和楼中楼预览。沿用目标、mode、sort、root 和 cursor 续读。",
       "parameters": {
         "type": "object",
         "additionalProperties": false,
@@ -251,23 +120,99 @@
             "maxLength": 8192,
             "description": "B站视频长链或 b23.tv 短链，可直接使用分享卡片中的链接。"
           },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "subtitles",
+              "info",
+              "comments"
+            ],
+            "description": "subtitles 字幕（默认），info 简介，comments 评论。"
+          },
+          "cid": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "字幕分P的 cid；省略时按 URL 的 p 或第1P读取。"
+          },
           "sort": {
             "type": "string",
             "enum": [
               "hot",
               "time"
             ],
-            "description": "hot 为热门（默认），time 为最新；楼中楼不指定。"
+            "description": "仅 comments：hot 为热门（默认），time 为最新；楼中楼不指定。"
           },
           "root": {
             "type": "string",
             "pattern": "^[1-9][0-9]{0,19}$",
-            "description": "根评论的 rpid 字符串；省略时读取视频评论区。"
+            "description": "仅 comments：读取该根评论楼中楼，填 rpid 字符串；省略时读取视频评论区。"
           },
           "cursor": {
             "type": "string",
             "maxLength": 256,
             "description": "沿用回执末尾的续读 cursor。"
+          }
+        }
+      },
+      "tags": [
+        "read"
+      ]
+    },
+    {
+      "name": "surfing_search_bili",
+      "description": "独立搜索 B站视频，返回标题、BV、UP主与时长。明确要求找视频时调用；查梗或概念可使用“关键词 梗知识”。可用 cursor 继续。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "沿用回执末尾的续读 cursor。"
+          }
+        }
+      },
+      "tags": [
+        "read"
+      ]
+    },
+    {
+      "name": "surfing_search_all",
+      "description": "在 B站、贴吧、萌娘百科、百度百科并行查找关键词，返回短材料，不含通用网页。B站候选的 BV号交给 surfing_read_bili；其余结果带 [L#]，用回执的 pageRef 和 linkId 调用 surfing_read_page 打开原文或取得更多贴吧结果。省略 sources 时查询配置中启用的来源。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 240
+          },
+          "sources": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "bili",
+                "tieba",
+                "moegirl",
+                "baike"
+              ]
+            },
+            "description": "只查询这些来源。"
           }
         }
       },

@@ -4,12 +4,13 @@ import { fileURLToPath } from 'node:url';
 import { coerceGroupValues } from 'cortico/core/config-schema.ts';
 import type { ToolDef, ToolSpec, ToolOutcome, ToolCallContext, World, WorldWebUiDecl, WorldHost } from 'cortico/core/types.ts';
 import type { WorldContext } from 'cortico/world.ts';
-import { SURFING_CONFIG_GROUPS, SURFING_MICROLINK_SECRET, applyBiliDefaults, configValue, validateConfig, type SurfingConfigSection } from './config.ts';
+import { SURFING_CONFIG_GROUPS, SURFING_MICROLINK_SECRET, applyConfigDefaults, configValue, validateConfig, type SurfingConfigSection } from './config.ts';
 import { BiliClient, biliKey, biliCommentsKey, type BiliInput, type BiliCommentsInput } from './bili.ts';
 import { ReadError, asReadError, PublicClient, waitWithSignal, type ReadOperation } from './network.ts';
 import { PageReader, pageKey } from './page-reader.ts';
 import { SnapshotCache, estimateTokens, type Material } from './snapshots.ts';
 import { MicrolinkRenderer } from './microlink.ts';
+import { SITE_SOURCES, continueTieba, searchSites } from './sites.ts';
 import { prepareKeyFile, openSecretFile } from './secret-file.ts';
 
 const ENV_PROMPT_FILE = fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url));
@@ -22,22 +23,27 @@ const videoTarget = {
 };
 export const SURFING_TOOL_DECLS: ToolSpec[] = [
   {
-    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页正文：提供 URL 初读，或用原页 pageRef 与 linkId 打开正文编号链接；用目标页 pageRef 与 cursor 续读。打开链接时不带 cursor。返回预算内原文，仅接受公开域名，支持 URL 章节锚点。',
+    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页和 surfing_search_all 回执。url 初读网页；pageRef 与 linkId 打开回执中的编号，网页链接、帖子和词条打开原文，“更多贴吧结果”返回下一批结果，不带 cursor；pageRef 与 cursor 续读当前材料。返回预算内原文，仅接受公开域名，支持 URL 章节锚点。',
     parameters: { type: 'object', additionalProperties: false, oneOf: [
       { required: ['url'], not: { required: ['linkId'] } },
       { required: ['pageRef'], not: { required: ['linkId'] } },
       { required: ['pageRef', 'linkId'], not: { anyOf: [{ required: ['url'] }, { required: ['cursor'] }] } },
     ], properties: {
       url: { type: 'string', maxLength: 8192, description: '用户提供、分享卡片或搜索结果中的公开 HTTP(S) 网页 URL。' },
-      pageRef: { type: 'string', maxLength: 256, description: '网页回执中的 pageRef；打开链接时用原页引用，续读时用目标页引用。' },
-      linkId: { type: 'string', pattern: '^L[1-9][0-9]*$', description: '打开正文中的链接编号，如 L1；需配合原页 pageRef，不带 cursor。' }, cursor,
+      pageRef: { type: 'string', maxLength: 256, description: '网页或 surfing_search_all 回执中的 pageRef；打开链接时用原页引用，续读时用目标页引用。' },
+      linkId: { type: 'string', pattern: '^L[1-9][0-9]*$', description: '打开回执中的编号，如 L1；需配合该回执的 pageRef，不带 cursor。' }, cursor,
     } },
   },
   {
-    name: 'surfing_read_bili', tags: ['read'], description: '匿名读取 B站视频人工或 AI 字幕。提供 BV 或视频链接即可；可指定 cid 或 URL 中的 p 选择分P。回执为字幕原文片段，未取得字幕不代表无音频。',
-    parameters: { type: 'object', additionalProperties: false, anyOf: [{ required: ['bvid'] }, { required: ['aid'] }, { required: ['url'] }], properties: {
+    name: 'surfing_read_bili', tags: ['read'], description: '匿名读取 B站视频材料，提供 BV、aid 或视频链接。mode 默认 subtitles，读人工或 AI 字幕原文，可用 cid 或 URL 中的 p 选择分P，未取得字幕不代表无音频；info 读简介、标题、UP主和分P目录；comments 读评论原文、作者、时间、点赞数和 rpid，含置顶和楼中楼预览。'
+      + '沿用目标、mode、sort、root 和 cursor 续读。',
+    parameters: { type: 'object', additionalProperties: false, anyOf: [{ required: ['bvid'] }, { required: ['aid'] }, { required: ['url'] }],
+      not: { required: ['sort', 'root'] }, properties: {
       ...videoTarget,
-      cid: { type: 'integer', minimum: 1, description: '特定分P的 cid；省略时按 URL 的 p 或第1P读取。' },
+      mode: { type: 'string', enum: ['subtitles', 'info', 'comments'], description: 'subtitles 字幕（默认），info 简介，comments 评论。' },
+      cid: { type: 'integer', minimum: 1, description: '字幕分P的 cid；省略时按 URL 的 p 或第1P读取。' },
+      sort: { type: 'string', enum: ['hot', 'time'], description: '仅 comments：hot 为热门（默认），time 为最新；楼中楼不指定。' },
+      root: { type: 'string', pattern: '^[1-9][0-9]{0,19}$', description: '仅 comments：读取该根评论楼中楼，填 rpid 字符串；省略时读取视频评论区。' },
       cursor,
     } },
   },
@@ -48,24 +54,20 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
     } },
   },
   {
-    name: 'surfing_read_bili_info', tags: ['read'],
-    description: '匿名读取 B站视频简介原文、标题、UP主和分P目录，无需字幕。提供 BV、aid 或视频链接；沿用目标参数和 cursor 续读。',
-    parameters: { type: 'object', additionalProperties: false,
-      anyOf: [{ required: ['bvid'] }, { required: ['aid'] }, { required: ['url'] }],
-      properties: { ...videoTarget, cursor } },
-  },
-  {
-    name: 'surfing_read_bili_comments', tags: ['read'],
-    description: '匿名读取 B站视频评论原文、作者、时间、点赞数和 rpid，默认热门排序，含置顶和楼中楼预览。'
-      + '用 root 指定根评论 rpid 读取楼中楼，不带 sort。沿用目标、sort、root 和 cursor 续读，按需取得后续评论。平台限制按回执说明。',
-    parameters: { type: 'object', additionalProperties: false,
-      anyOf: [{ required: ['bvid'] }, { required: ['aid'] }, { required: ['url'] }],
-      not: { required: ['sort', 'root'] },
-      properties: { ...videoTarget,
-        sort: { type: 'string', enum: ['hot', 'time'], description: 'hot 为热门（默认），time 为最新；楼中楼不指定。' },
-        root: { type: 'string', pattern: '^[1-9][0-9]{0,19}$', description: '根评论的 rpid 字符串；省略时读取视频评论区。' }, cursor } },
+    name: 'surfing_search_all', tags: ['read'],
+    description: '在 B站、贴吧、萌娘百科、百度百科并行查找关键词，返回短材料，不含通用网页。B站候选的 BV号交给 surfing_read_bili；其余结果带 [L#]，用回执的 pageRef 和 linkId 调用 surfing_read_page 打开原文或取得更多贴吧结果。省略 sources 时查询配置中启用的来源。',
+    parameters: { type: 'object', additionalProperties: false, required: ['query'], properties: {
+      query: { type: 'string', minLength: 1, maxLength: 240 },
+      sources: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: [...SITE_SOURCES] }, description: '只查询这些来源。' },
+    } },
   },
 ];
+
+function searchQuery(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim() || [...value.trim()].length > 240)
+    throw new ReadError('invalid_input', '搜索词需为1–240字符。');
+  return value.trim();
+}
 
 export class SurfingWorld implements World {
   readonly id = 'surfing';
@@ -79,7 +81,7 @@ export class SurfingWorld implements World {
 
   constructor(private readonly ctx: WorldContext<SurfingConfigSection>, private readonly client = new PublicClient(),
     private readonly openFile = openSecretFile) {
-    applyBiliDefaults(ctx.cfg);
+    applyConfigDefaults(ctx.cfg);
     this.pages = new PageReader(undefined, new MicrolinkRenderer(() => ctx.secret(SURFING_MICROLINK_SECRET)));
   }
 
@@ -101,7 +103,8 @@ export class SurfingWorld implements World {
       if (args.cursor !== undefined && typeof args.cursor !== 'string') throw new ReadError('cursor_expired', '续读游标必须为字符串。');
       let cursor = args.cursor as string | undefined;
       const signals = [this.lifecycle.signal, ...(call.signal ? [call.signal] : [])];
-      operation = this.client.operation(config.network, AbortSignal.any(signals));
+      const caller = AbortSignal.any(signals);
+      operation = this.client.operation(config.network, caller);
       let material: Material | undefined;
       let key: string;
       if (name === 'surfing_read_page') {
@@ -111,9 +114,15 @@ export class SurfingWorld implements World {
           if (args.linkId !== undefined) {
             if (typeof args.linkId !== 'string' || !/^L[1-9][0-9]*$/.test(args.linkId) || args.cursor !== undefined)
               throw new ReadError('invalid_input', '打开链接时提供 L1 等 linkId，不带 cursor；续读用目标页 pageRef 和 cursor。');
-            const url = this.cache.link(args.pageRef, args.linkId, config);
-            key = pageKey(url);
-            material = await this.pages.read(url, operation, config.network.maxDownloadBytes);
+            const target = this.cache.link(args.pageRef, args.linkId, config);
+            if (typeof target === 'string') {
+              key = pageKey(target);
+              material = await this.pages.read(target, operation, config.network.maxDownloadBytes);
+            } else {
+              key = target.key;
+              cursor = await this.batchCursor(target.cursor, key, config, operation,
+                (_page, op) => continueTieba(target.more, config.search.maxResults, op));
+            }
           } else ({ key, cursor } = this.cache.pageCursor(args.pageRef, cursor, config));
         } else {
           if (args.linkId !== undefined) throw new ReadError('invalid_input', '打开编号链接需提供原页 pageRef 和 linkId。');
@@ -121,15 +130,23 @@ export class SurfingWorld implements World {
           key = pageKey(args.url);
           if (!cursor) material = await this.pages.read(args.url, operation, config.network.maxDownloadBytes);
         }
-      } else if (['surfing_read_bili', 'surfing_read_bili_info', 'surfing_read_bili_comments'].includes(name)) {
+      } else if (name === 'surfing_search_all') {
+        material = await searchSites(searchQuery(args.query), args.sources, config.search, this.bili, operation);
+        key = material.key;
+      } else if (name === 'surfing_read_bili') {
+        const mode = args.mode ?? 'subtitles';
+        if ((mode !== 'comments' && (args.sort !== undefined || args.root !== undefined)) || (mode !== 'subtitles' && args.cid !== undefined))
+          throw new ReadError('invalid_input', 'cid 只用于字幕，sort 和 root 只用于评论。');
         const input: BiliInput = { bvid: args.bvid as string | undefined, aid: args.aid as number | undefined,
           cid: args.cid as number | undefined, url: args.url as string | undefined };
-        if (name === 'surfing_read_bili') {
+        if (mode === 'subtitles') {
           key = biliKey(input);
           if (!cursor) material = await this.bili.read(input, operation, config.bili.subtitleGroupSec, config.bili);
-        } else if (name === 'surfing_read_bili_info') {
+        } else if (mode === 'info') {
           key = 'info:' + biliKey(input);
           if (!cursor) material = await this.bili.readInfo(input, operation);
+        } else if (mode !== 'comments') {
+          throw new ReadError('invalid_input', 'mode 为 subtitles、info 或 comments。');
         } else {
           const comments: BiliCommentsInput = { ...input, sort: args.sort as BiliCommentsInput['sort'], root: args.root as string | undefined };
           key = biliCommentsKey(comments);
@@ -138,15 +155,14 @@ export class SurfingWorld implements World {
           else material = await this.bili.readComments(comments, comments.root ? 1 : 0, operation);
         }
       } else {
-        if (typeof args.query !== 'string' || !args.query.trim() || [...args.query.trim()].length > 240)
-          throw new ReadError('invalid_input', '搜索词需为1–240字符。');
-        const query = args.query.trim();
+        const query = searchQuery(args.query);
         key = 'search:' + query;
         if (cursor) cursor = await this.batchCursor(cursor,key,config,operation,
           (page, op) => this.bili.search(query,page,op));
         else material = await this.bili.search(query, 1, operation);
       }
-      operation.signal.throwIfAborted();
+      // A source that timed out already has its status line, so only the caller's cancel drops a surfing_search_all receipt.
+      (name === 'surfing_search_all' ? caller : operation.signal).throwIfAborted();
       if (material) cursor = this.cache.put(material, config);
       const page = this.cache.read(cursor!, key, config);
       this.last = { status: page.failed ? 'response_limit' : 'ok', failed: !!page.failed,

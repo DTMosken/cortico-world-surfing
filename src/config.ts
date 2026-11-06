@@ -8,6 +8,7 @@ export interface SurfingConfigSection {
   bili: { subtitleGroupSec: number; maxSubtitleRetries: number; subtitleRetryDelayMs: number };
   network: { maxDownloadBytes: number; requestTimeoutMs: number };
   cache: { ttlMs: number; maxBytes: number };
+  search: { bili: boolean; tieba: boolean; moegirl: boolean; baike: boolean; maxResults: number };
 }
 
 export const SURFING_DEFAULTS: SurfingConfigSection = {
@@ -16,6 +17,7 @@ export const SURFING_DEFAULTS: SurfingConfigSection = {
   bili: { subtitleGroupSec: 30, maxSubtitleRetries: 2, subtitleRetryDelayMs: 1000 },
   network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 20000 },
   cache: { ttlMs: 900000, maxBytes: 32 * 1024 * 1024 },
+  search: { bili: true, tieba: true, moegirl: true, baike: true, maxResults: 5 },
 };
 
 export const SURFING_CONFIG_GROUP: ConfigGroup = {
@@ -39,6 +41,20 @@ export const SURFING_CONFIG_GROUP: ConfigGroup = {
       'x-scale': 1000, 'x-suffix': '秒', 'x-hot': true,
       description: '后续每次等待翻倍，重试共用单次读取超时。新读取生效。',
     },
+  } },
+};
+
+export const SURFING_SEARCH_CONFIG_GROUP: ConfigGroup = {
+  id: 'world:surfing:search', owner: 'world:surfing',
+  schema: { type: 'object', title: '站点搜索', description: '用于 surfing_search_all 及其贴吧续搜，下次调用生效。', properties: {
+    'worlds.surfing.search.maxResults': {
+      type: 'integer', title: '每源显示条数', minimum: 1, maximum: 10,
+      'x-suffix': '条', 'x-hot': true, description: '作用于 B站和贴吧。',
+    },
+    'worlds.surfing.search.bili': { type: 'boolean', title: 'B站', 'x-hot': true },
+    'worlds.surfing.search.tieba': { type: 'boolean', title: '贴吧', 'x-hot': true },
+    'worlds.surfing.search.moegirl': { type: 'boolean', title: '萌娘百科', 'x-hot': true },
+    'worlds.surfing.search.baike': { type: 'boolean', title: '百度百科', 'x-hot': true },
   } },
 };
 
@@ -68,22 +84,27 @@ export const SURFING_LIMITS_CONFIG_GROUP: ConfigGroup = {
   } },
 };
 
-export const SURFING_CONFIG_GROUPS = [SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP];
+export const SURFING_CONFIG_GROUPS = [SURFING_CONFIG_GROUP, SURFING_SEARCH_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP];
 
 export function configValue(config: SurfingConfigSection, path: string): unknown {
   return path.split('.').slice(2).reduce<unknown>((part, key) => (part as Record<string, unknown>)?.[key], config);
 }
 
-export function applyBiliDefaults(config: SurfingConfigSection): void {
+export function applyConfigDefaults(config: SurfingConfigSection): void {
+  config.search = { ...SURFING_DEFAULTS.search, ...config.search };
   if (config.bili.maxSubtitleRetries === undefined) config.bili.maxSubtitleRetries = SURFING_DEFAULTS.bili.maxSubtitleRetries;
   if (config.bili.subtitleRetryDelayMs === undefined) config.bili.subtitleRetryDelayMs = SURFING_DEFAULTS.bili.subtitleRetryDelayMs;
 }
 
 export function validateConfig(config: SurfingConfigSection): void {
-  applyBiliDefaults(config);
+  applyConfigDefaults(config);
   for (const group of SURFING_CONFIG_GROUPS) {
     for (const [path, schema] of Object.entries(group.schema.properties)) {
       const value = configValue(config, path);
+      if (schema.type === 'boolean') {
+        if (typeof value !== 'boolean') throw new Error(`${schema.title}超出配置范围。`);
+        continue;
+      }
       if (typeof value !== 'number' || !Number.isInteger(value) || value < schema.minimum! || value > schema.maximum!)
         throw new Error(`${schema.title}超出配置范围。`);
     }

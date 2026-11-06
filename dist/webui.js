@@ -5,7 +5,8 @@ var SURFING_DEFAULTS = {
   reading: { maxResponseEstimatedTokens: 3e3, maxSourceChars: 3e5 },
   bili: { subtitleGroupSec: 30, maxSubtitleRetries: 2, subtitleRetryDelayMs: 1e3 },
   network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 2e4 },
-  cache: { ttlMs: 9e5, maxBytes: 32 * 1024 * 1024 }
+  cache: { ttlMs: 9e5, maxBytes: 32 * 1024 * 1024 },
+  search: { bili: true, tieba: true, moegirl: true, baike: true, maxResults: 5 }
 };
 var SURFING_CONFIG_GROUP = {
   id: "world:surfing",
@@ -48,6 +49,25 @@ var SURFING_CONFIG_GROUP = {
       "x-hot": true,
       description: "\u540E\u7EED\u6BCF\u6B21\u7B49\u5F85\u7FFB\u500D\uFF0C\u91CD\u8BD5\u5171\u7528\u5355\u6B21\u8BFB\u53D6\u8D85\u65F6\u3002\u65B0\u8BFB\u53D6\u751F\u6548\u3002"
     }
+  } }
+};
+var SURFING_SEARCH_CONFIG_GROUP = {
+  id: "world:surfing:search",
+  owner: "world:surfing",
+  schema: { type: "object", title: "\u7AD9\u70B9\u641C\u7D22", description: "\u7528\u4E8E surfing_search_all \u53CA\u5176\u8D34\u5427\u7EED\u641C\uFF0C\u4E0B\u6B21\u8C03\u7528\u751F\u6548\u3002", properties: {
+    "worlds.surfing.search.maxResults": {
+      type: "integer",
+      title: "\u6BCF\u6E90\u663E\u793A\u6761\u6570",
+      minimum: 1,
+      maximum: 10,
+      "x-suffix": "\u6761",
+      "x-hot": true,
+      description: "\u4F5C\u7528\u4E8E B\u7AD9\u548C\u8D34\u5427\u3002"
+    },
+    "worlds.surfing.search.bili": { type: "boolean", title: "B\u7AD9", "x-hot": true },
+    "worlds.surfing.search.tieba": { type: "boolean", title: "\u8D34\u5427", "x-hot": true },
+    "worlds.surfing.search.moegirl": { type: "boolean", title: "\u840C\u5A18\u767E\u79D1", "x-hot": true },
+    "worlds.surfing.search.baike": { type: "boolean", title: "\u767E\u5EA6\u767E\u79D1", "x-hot": true }
   } }
 };
 var SURFING_LIMITS_CONFIG_GROUP = {
@@ -100,7 +120,7 @@ var SURFING_LIMITS_CONFIG_GROUP = {
     }
   } }
 };
-var SURFING_CONFIG_GROUPS = [SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP];
+var SURFING_CONFIG_GROUPS = [SURFING_CONFIG_GROUP, SURFING_SEARCH_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP];
 
 // src/webui/client.ts
 var errorText = (error) => error instanceof Error ? error.message : "\u64CD\u4F5C\u5931\u8D25";
@@ -115,12 +135,12 @@ async function mount(ctx) {
     const grid = ui.h("div");
     grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:16px 24px";
     const saved = ui.msgline("");
+    const toggles = ui.h("div", "segwrap umulti");
     for (const [path, property] of Object.entries(group.schema.properties)) {
-      const scale = property["x-scale"] ?? 1;
-      const input = ui.input({ type: "number", value: String(state.values[path] / scale), onChange: (value) => {
+      const save = (value, apply) => {
         saves = saves.then(async () => {
-          const next = await ctx.invoke("save", [path, Number(value) * scale]);
-          if (input.value === value) input.value = String(next.values[path] / scale);
+          const next = (await ctx.invoke("save", [path, value])).values[path];
+          apply?.(next);
           saved.textContent = `\u5DF2\u4FDD\u5B58\uFF1A${property.title}`;
           saved.classList.remove("bad");
           void ctx.refresh().catch(() => void 0);
@@ -128,13 +148,48 @@ async function mount(ctx) {
           saved.textContent = errorText(error);
           saved.classList.add("bad");
         });
+      };
+      if (property.type === "boolean") {
+        const toggle = ui.h("button", "seg", property.title);
+        toggle.type = "button";
+        const show = (enabled) => {
+          toggle.classList.toggle("active", enabled);
+          toggle.setAttribute("aria-pressed", String(enabled));
+        };
+        show(state.values[path] === true);
+        toggle.addEventListener("click", () => {
+          const value = !toggle.classList.contains("active");
+          show(value);
+          save(value);
+        }, { signal: ctx.signal });
+        toggles.append(toggle);
+        continue;
+      }
+      const note = ui.h("small", "muted", property.description);
+      note.id = path;
+      const scale = property["x-scale"] ?? 1;
+      const input = ui.input({ type: "number", value: String(Number(state.values[path]) / scale), onChange: (value) => {
+        save(Number(value) * scale, (next) => {
+          if (input.value === value) input.value = String(Number(next) / scale);
+        });
       } });
       input.min = String(property.minimum / scale);
       input.max = String(property.maximum / scale);
-      const field = ui.field(`${property.title}\uFF08${property["x-suffix"]}\uFF09`, input);
-      const note = ui.h("small", "muted", property.description);
-      note.id = path;
       input.setAttribute("aria-describedby", note.id);
+      const row = ui.h("div");
+      row.append(ui.field(`${property.title}\uFF08${property["x-suffix"]}\uFF09`, input), note);
+      grid.append(row);
+    }
+    if (toggles.children.length) {
+      const caption = ui.h("span", "fieldlabel", "\u6765\u6E90");
+      caption.id = `${group.id}:sources`;
+      toggles.setAttribute("role", "group");
+      toggles.setAttribute("aria-labelledby", caption.id);
+      const note = ui.h("small", "muted", group.schema.description);
+      note.id = `${group.id}:sources-note`;
+      toggles.setAttribute("aria-describedby", note.id);
+      const field = ui.h("div", "fieldrow");
+      field.append(caption, toggles);
       const row = ui.h("div");
       row.append(field, note);
       grid.append(row);

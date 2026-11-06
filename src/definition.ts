@@ -11,6 +11,6 @@ export const SURFING: WorldDefinition<SurfingConfigSection> = {
 };
 
 export default SURFING;
-export { SURFING_DEFAULTS, SURFING_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP } from './config.ts';
+export { SURFING_DEFAULTS, SURFING_CONFIG_GROUP, SURFING_SEARCH_CONFIG_GROUP, SURFING_LIMITS_CONFIG_GROUP } from './config.ts';
 export type { SurfingConfigSection } from './config.ts';
 export { SurfingWorld };
