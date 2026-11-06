@@ -30,25 +30,21 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     const ranges = schema.properties[PROXY_RANGES_PATH]!;
     const sheet = ui.sheet({ title: schema.title, desc: schema.description });
     const saved = ui.msgline('');
-    const toggle = ui.h('button', 'seg', '开启');
-    toggle.type = 'button';
-    showPressed(toggle, state.values[PROXY_MODE_PATH] === true);
-    toggle.addEventListener('click', () => {
-      saveValue(PROXY_MODE_PATH, mode.title, saved, !toggle.classList.contains('active'), next => showPressed(toggle, next === true));
+    const toggle = ui.h('input', 'connection-switch');
+    toggle.type = 'checkbox';
+    toggle.setAttribute('role', 'switch');
+    toggle.checked = state.values[PROXY_MODE_PATH] === true;
+    toggle.addEventListener('click', event => {
+      event.preventDefault();
+      saveValue(PROXY_MODE_PATH, mode.title, saved, toggle.checked, next => { toggle.checked = next === true; });
     }, { signal: ctx.signal });
-    const caption = ui.h('span', 'fieldlabel', mode.title);
-    caption.id = 'surfing-proxy-mode';
-    caption.style.color = 'var(--warn)';
     const note = ui.h('small', 'muted', mode.description);
     note.id = 'surfing-proxy-mode-note';
-    const bar = ui.h('div', 'segwrap umulti');
-    bar.setAttribute('role', 'group');
-    bar.setAttribute('aria-labelledby', caption.id);
-    bar.setAttribute('aria-describedby', note.id);
-    bar.append(toggle);
-    const field = ui.h('div', 'fieldrow');
-    field.append(caption, bar);
-    const row = ui.h('div');
+    toggle.setAttribute('aria-describedby', note.id);
+    const field = ui.field(mode.title, toggle);
+    field.classList.add('connection-toggle');
+    field.querySelector<HTMLElement>('.fieldlabel')!.style.color = 'var(--warn)';
+    const row = ui.h('div', 'connection-step');
     row.append(field, note);
 
     const advanced = ui.foldSheet('surfing-proxy-advanced', { title: '高级设置', defaultOpen: false });

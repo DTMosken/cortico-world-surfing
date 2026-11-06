@@ -75,28 +75,30 @@ test('配置面板合并全部设置，Microlink 步骤写明 API Key 的控制�
 test('代理兼容模式默认关闭，保存成功后才显示开启，失败时保持原状态', () => withPanel(async ({ root, cfg, failSaves }) => {
   expect(root.textContent).toContain('正在使用 Clash 等代理？');
   expect(root.textContent).toContain('可能包括本机或内网服务');
-  const toggle = root.querySelector<HTMLButtonElement>('[aria-labelledby="surfing-proxy-mode"] button')!;
+  const toggle = root.querySelector<HTMLInputElement>('.connection-step input[role=switch]')!;
   const message = () => toggle.closest('.sheet')!.querySelector('.msgline')!;
-  expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  expect(toggle.labels?.[0]?.textContent).toBe('代理兼容模式');
+  expect(toggle.getAttribute('aria-describedby')).toBe('surfing-proxy-mode-note');
+  expect(toggle.checked).toBe(false);
 
   failSaves(true);
   toggle.click();
   await vi.waitFor(() => expect(message().textContent).toBe('配置文件无法写入。'));
   expect(message().classList.contains('bad')).toBe(true);
-  expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  expect(toggle.checked).toBe(false);
   expect(cfg.network.proxyCompatibility).toBe(false);
 
   failSaves(false);
   toggle.click();
-  expect(toggle.getAttribute('aria-pressed')).toBe('false');
+  expect(toggle.checked).toBe(false);
   await vi.waitFor(() => expect(message().textContent).toBe('已保存：代理兼容模式'));
-  expect(toggle.getAttribute('aria-pressed')).toBe('true');
+  expect(toggle.checked).toBe(true);
   expect(cfg.network.proxyCompatibility).toBe(true);
 
   failSaves(true);
   toggle.click();
   await vi.waitFor(() => expect(message().classList.contains('bad')).toBe(true));
-  expect(toggle.getAttribute('aria-pressed')).toBe('true');
+  expect(toggle.checked).toBe(true);
   expect(cfg.network.proxyCompatibility).toBe(true);
 }));
 
