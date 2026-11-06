@@ -11,7 +11,7 @@ export interface SurfingConfigSection {
   bili: { subtitleGroupSec: number; maxSubtitleRetries: number; subtitleRetryDelayMs: number };
   network: { maxDownloadBytes: number; requestTimeoutMs: number; proxyCompatibility: boolean; customProxyRanges: string };
   cache: { ttlMs: number; maxBytes: number };
-  search: { bili: boolean; tieba: boolean; moegirl: boolean; baike: boolean; maxResults: number };
+  search: { bili: boolean; tieba: boolean; moegirl: boolean; baike: boolean; nbnhhsh: boolean; maxResults: number };
 }
 
 export const SURFING_DEFAULTS: SurfingConfigSection = {
@@ -20,7 +20,7 @@ export const SURFING_DEFAULTS: SurfingConfigSection = {
   bili: { subtitleGroupSec: 30, maxSubtitleRetries: 2, subtitleRetryDelayMs: 1000 },
   network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 20000, proxyCompatibility: false, customProxyRanges: '' },
   cache: { ttlMs: 900000, maxBytes: 32 * 1024 * 1024 },
-  search: { bili: true, tieba: true, moegirl: true, baike: true, maxResults: 5 },
+  search: { bili: true, tieba: true, moegirl: true, baike: true, nbnhhsh: true, maxResults: 5 },
 };
 
 export const SURFING_CONFIG_GROUP: ConfigGroup = {
@@ -52,12 +52,13 @@ export const SURFING_SEARCH_CONFIG_GROUP: ConfigGroup = {
   schema: { type: 'object', title: '站点搜索', description: '用于 surfing_search_all 及其贴吧续搜，下次调用生效。', properties: {
     'worlds.surfing.search.maxResults': {
       type: 'integer', title: '每源显示条数', minimum: 1, maximum: 10,
-      'x-suffix': '条', 'x-hot': true, description: '作用于 B站和贴吧。',
+      'x-suffix': '条', 'x-hot': true, description: '作用于 B站、贴吧和每个缩写的候选数。',
     },
     'worlds.surfing.search.bili': { type: 'boolean', title: 'B站', 'x-hot': true },
     'worlds.surfing.search.tieba': { type: 'boolean', title: '贴吧', 'x-hot': true },
     'worlds.surfing.search.moegirl': { type: 'boolean', title: '萌娘百科', 'x-hot': true },
     'worlds.surfing.search.baike': { type: 'boolean', title: '百度百科', 'x-hot': true },
+    'worlds.surfing.search.nbnhhsh': { type: 'boolean', title: '缩写释义', 'x-hot': true },
   } },
 };
 

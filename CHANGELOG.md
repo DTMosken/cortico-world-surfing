@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Add nbnhhsh abbreviation lookup as the fifth `surfing_search_all` source. It is on by default, including for existing configs without the new setting, and sends every letter and digit fragment of the query to nbnhhsh; turn it off in the site search settings.
+
 ## 0.3.2 - 2026-11-03
 
 - Use Microlink to render pages when local Chromium is unavailable, with an optional API key and keyless requests.

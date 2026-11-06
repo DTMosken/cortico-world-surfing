@@ -61,7 +61,7 @@ test('配置面板合并全部设置，Microlink 步骤写明 API Key 的控制�
   expect(sections).toEqual(['阅读与字幕', '站点搜索', '代理', '高级设置', '获取与缓存限制', 'Microlink 远程渲染', '如何取得 API Key']);
   expect(root.querySelectorAll('input[type=number]')).toHaveLength(10);
   expect([...root.querySelectorAll('[aria-labelledby="world:surfing:search:sources"] button')].map(button => [button.textContent, button.getAttribute('aria-pressed')]))
-    .toEqual(['B站', '贴吧', '萌娘百科', '百度百科'].map(source => [source, 'true']));
+    .toEqual(['B站', '贴吧', '萌娘百科', '百度百科', '缩写释义'].map(source => [source, 'true']));
   expect(root.textContent).toContain('用于 surfing_search_all 及其贴吧续搜，下次调用生效。');
   expect(root.querySelector('a')?.href).toBe('https://dashboard.microlink.io/signup');
   const steps = [...root.querySelectorAll('ol li')].map(element => element.textContent);

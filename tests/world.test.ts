@@ -27,7 +27,7 @@ class FixtureClient extends PublicClient {
   override operation(limits: NetworkLimits, parent?: AbortSignal) {
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal,AbortSignal.timeout(limits.requestTimeoutMs),...(parent?[parent]:[])]);
-    return {signal,downloadedBytes:0,close:()=>controller.abort(),get:(url:string,options?:import('../src/network.ts').GetOptions)=>waitWithSignal(this.fixture.get(url,options),signal)};
+    return {signal,downloadedBytes:0,close:()=>controller.abort(),postJson:(url:string,payload:unknown,allowHost:(hostname:string)=>boolean)=>waitWithSignal(this.fixture.postJson(url,payload,allowHost),signal),get:(url:string,options?:import('../src/network.ts').GetOptions)=>waitWithSignal(this.fixture.get(url,options),signal)};
   }
 }
 function result(outcome: Awaited<ReturnType<ReturnType<SurfingWorld['tools']>[number]['handler']>>) {
@@ -329,7 +329,7 @@ class PageFixtureClient extends PublicClient {
   constructor(private readonly html: Record<string, string>) { super(async () => [{ address: '127.0.0.1', family: 4 }]); }
   override operation(limits: NetworkLimits, parent?: AbortSignal) {
     const guarded = super.operation(limits, parent);
-    return { signal: guarded.signal, downloadedBytes: 0, close: () => guarded.close(), get: async (input: string) => {
+    return { signal: guarded.signal, downloadedBytes: 0, close: () => guarded.close(), postJson: guarded.postJson.bind(guarded), get: async (input: string) => {
       const url = validatePublicUrl(input);
       if (url.hostname !== 'example.org') return guarded.get(input);
       this.requests.push(url.pathname);

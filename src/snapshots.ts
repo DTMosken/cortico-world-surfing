@@ -124,12 +124,13 @@ export class SnapshotCache {
     this.snapshots.set(start.id, snapshot);
     const { material } = snapshot;
     const scope = material.scope;
+    const pageRef = `pageRef: ${this.encode({ id: start.id, unit: 0, offset: 0 })}`;
     const header = [material.kind === 'bili' ? `视频：${line(material.title)}`
       : material.kind === 'bili-info' ? `视频简介：${line(material.title)}`
       : material.kind === 'bili-comments' ? `视频评论：${line(material.title)}`
       : material.kind === 'search' ? `B站搜索：${line(scope.query)}（第${scope.page}页）`
       : material.kind === 'site-search' ? line(material.title) : `网页：${line(material.title)}`];
-    if (material.kind === 'page' || (material.kind === 'site-search' && material.links)) header.push(`pageRef: ${this.encode({ id: start.id, unit: 0, offset: 0 })}`);
+    if (material.kind === 'page' || (material.kind === 'site-search' && material.links)) header.push(pageRef);
     if (material.kind === 'bili') header.push(`P${scope.page}：${line(scope.part)}；UP主：${line(scope.author)}；${scope.isAi ? 'AI' : '人工'}字幕（${line(scope.language)}）`);
     if (material.kind === 'bili-info') header.push(`BV: ${scope.bvid}；UP主：${line(scope.author)}`);
     if (material.kind === 'bili-comments') header.push(`BV: ${scope.bvid}；${scope.root
@@ -150,7 +151,7 @@ export class SnapshotCache {
     const hasMore = () => current.unit < material.units.length
       || (material.kind !== 'site-search' && material.nextBatch !== undefined && !material.sourceTruncated);
     const finish = () => {
-      const footer = [...notices, ...(hasMore() ? [`续读 cursor: ${this.encode(current)}`] : [])];
+      const footer = [...notices, ...(hasMore() ? [...(material.kind === 'site-search' && !material.links ? [pageRef] : []), `续读 cursor: ${this.encode(current)}`] : [])];
       const title = failure ? '[tool failed] ' + failure : header.join('\n');
       return (title ? title + '\n\n' : '') + content + (footer.length ? '\n\n' + footer.join('\n') : '');
     };

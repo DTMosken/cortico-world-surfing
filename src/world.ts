@@ -56,7 +56,7 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
   },
   {
     name: 'surfing_search_all', tags: ['read'],
-    description: '在 B站、贴吧、萌娘百科、百度百科并行查找关键词，返回短材料，不含通用网页。B站候选的 BV号交给 surfing_read_bili；其余结果带 [L#]，用回执的 pageRef 和 linkId 调用 surfing_read_page 打开原文或取得更多贴吧结果。省略 sources 时查询配置中启用的来源。',
+    description: '在 B站、贴吧、萌娘百科、百度百科并行查找关键词，并把 query 中的字母和数字片段交给 nbnhhsh 查缩写候选，返回短材料，不含通用网页。B站候选的 BV号交给 surfing_read_bili；缩写候选只有文本，由网友贡献，需按上下文判断；其余结果带 [L#]，用回执的 pageRef 和 linkId 调用 surfing_read_page 打开原文或取得更多贴吧结果。省略 sources 时查询配置中启用的来源。',
     parameters: { type: 'object', additionalProperties: false, required: ['query'], properties: {
       query: { type: 'string', minLength: 1, maxLength: 240 },
       sources: { type: 'array', minItems: 1, uniqueItems: true, items: { type: 'string', enum: [...SITE_SOURCES] }, description: '只查询这些来源。' },
