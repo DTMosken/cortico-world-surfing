@@ -12,7 +12,6 @@ import { PageReader, pageKey } from './page-reader.ts';
 import { SnapshotCache, estimateTokens, type Material } from './snapshots.ts';
 import { MicrolinkRenderer } from './microlink.ts';
 import { SITE_SOURCES, continueTieba, searchSites } from './sites.ts';
-import { prepareKeyFile, openSecretFile } from './secret-file.ts';
 
 const ENV_PROMPT_FILE = fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url));
 
@@ -80,8 +79,7 @@ export class SurfingWorld implements World {
   private stopped = false;
   private last?: { status: string; failed: boolean; estimatedTokens: number; sourceTruncated: boolean };
 
-  constructor(private readonly ctx: WorldContext<SurfingConfigSection>, private readonly client = new PublicClient(),
-    private readonly openFile = openSecretFile) {
+  constructor(private readonly ctx: WorldContext<SurfingConfigSection>, private readonly client = new PublicClient()) {
     applyConfigDefaults(ctx.cfg);
     this.pages = new PageReader(undefined, new MicrolinkRenderer(() => ctx.secret(SURFING_MICROLINK_SECRET)));
   }
@@ -244,9 +242,13 @@ export class SurfingWorld implements World {
         if (panel !== 'config') throw new Error('未知面板。');
         if (method === 'state') return this.configState();
         if (method === 'save') { this.saveConfig(args[0], args[1]); return this.configState(); }
-        if (method === 'openKeyFile') {
-          const file = prepareKeyFile(this.ctx.botDir);
-          await this.openFile(file); return { file };
+        if (method === 'saveKey') {
+          const [value] = args;
+          if (typeof value !== 'string') throw new Error('密钥须为文本');
+          const key = value.trim();
+          if (/\s/.test(key)) throw new Error('密钥不能包含空白字符');
+          if (key) this.ctx.storeSecret(SURFING_MICROLINK_SECRET, key);
+          return this.configState();
         }
         throw new Error('未知操作。');
       },

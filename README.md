@@ -31,19 +31,14 @@
 
 无需 API Key 即可使用 Microlink 后备。配置 Key 后使用认证接口及该 Key 的额度；Key 仅发送给 Microlink，不进入模型回执。
 
-在网上冲浪的「配置」页找到「Microlink 远程渲染」，点击「打开密钥文件」，编辑部署目录的 `.env`：
-
-```dotenv
-CORTICO_SURFING_MICROLINK_API_KEY=
-```
+在网上冲浪的「配置」页找到「Microlink 远程渲染」。
 
 取得免费 Key 的步骤：
 
 1. 打开 [Microlink 注册页](https://dashboard.microlink.io/signup)，注册账号并登录，无需购买付费套餐。
 2. 在控制台左侧选择「Overview」，点击「Usage」标签。
 3. 点击「Development」标签右上角的「…」，复制 API Key。
-4. 将 Key 填在上面的等号后，不加引号，保存文件。
-5. 点击「刷新密钥状态」，状态变为「API Key 已配置」。下次远程读取使用新 Key；清空值并保存可恢复免 Key 调用。
+4. 将 Key 粘贴到 Microlink API Key 输入框并保存，下次远程读取即使用新 Key。
 
 免 Key 和免费 Key 的额度不同，当前限制见 [Microlink 额度说明](https://microlink.io/docs/api/basics/rate-limit)。额度耗尽或访问失败时，回执说明原因；已有短静态正文仍返回，并标明未取得完整渲染内容。
 
