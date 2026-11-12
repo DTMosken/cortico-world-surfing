@@ -131,7 +131,7 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     try { keyStatus.textContent = await run(); keyStatus.classList.remove('bad'); }
     catch (error) { keyStatus.textContent = errorText(error); keyStatus.classList.add('bad'); }
   }
-  const keyInput = ui.input({ type: 'password', cls: 'mono grow', onCommit: () => save.click() });
+  const keyInput = ui.input({ type: 'password', cls: 'mono', onCommit: () => save.click() });
   const save = ui.button('保存密钥', { size: 'sm', variant: 'primary', onClick: () => {
     if (!keyInput.value.trim()) return;
     void keyAction(async () => {

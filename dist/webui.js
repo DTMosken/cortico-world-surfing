@@ -1134,7 +1134,7 @@ async function mount(ctx) {
       keyStatus.classList.add("bad");
     }
   }
-  const keyInput = ui.input({ type: "password", cls: "mono grow", onCommit: () => save.click() });
+  const keyInput = ui.input({ type: "password", cls: "mono", onCommit: () => save.click() });
   const save = ui.button("\u4FDD\u5B58\u5BC6\u94A5", { size: "sm", variant: "primary", onClick: () => {
     if (!keyInput.value.trim()) return;
     void keyAction(async () => {
