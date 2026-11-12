@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
@@ -9,12 +9,12 @@ import type { WebUi, WebUiPanelContext } from 'cortico/web/shared/client-panel.t
 import { h } from 'cortico/web/client/ui/dom.ts';
 import { field, input, textarea } from 'cortico/web/client/ui/fields.ts';
 import { button, foldSheet, msgline, pill, rowbar, sheet } from 'cortico/web/client/ui/sheet.ts';
-import { SURFING_DEFAULTS, SURFING_MICROLINK_SECRET, type SurfingConfigSection } from '../src/config.ts';
+import { SURFING_DEFAULTS, type SurfingConfigSection } from '../src/config.ts';
 import { SurfingWorld } from '../src/world.ts';
 import client from '../src/webui/client.ts';
 
 async function withPanel(run: (panel: {
-  root: HTMLElement; world: SurfingWorld; cfg: SurfingConfigSection; opened: () => string;
+  root: HTMLElement; world: SurfingWorld; cfg: SurfingConfigSection;
   invoke: WebUiPanelContext['invoke']; persisted: unknown[]; window: JSDOM['window']; failSaves: (failing: boolean) => void;
 }) => Promise<void>): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'surfing-webui-'));
@@ -24,12 +24,11 @@ async function withPanel(run: (panel: {
   const signal = controller.signal as unknown as AbortSignal;
   const cfg = structuredClone(SURFING_DEFAULTS);
   const persisted: unknown[] = [];
-  let opened = '';
   let failing = false;
   const context: WorldContext<SurfingConfigSection> = {
     id: 'surfing', cfg, botName: 'fixture', botDir: dir,
     dataDir: dir, packageDir: dir, repoRoot: dir, timezone: 'UTC', secret: secretReader(join(dir, '.env')),
-    storeSecret() { throw new Error('Keys are edited in the file'); },
+    storeSecret(name, value) { writeFileSync(join(dir, '.env'), `${name}=${value}\n`); },
     persist(patch) {
       for (const [section, values] of Object.entries(patch)) Object.assign(cfg[section as keyof SurfingConfigSection] as object, values);
       if (failing) throw new Error('配置文件无法写入。');
@@ -37,7 +36,7 @@ async function withPanel(run: (panel: {
     },
     async restart() {},
   };
-  const world = new SurfingWorld(context, undefined, async file => { opened = file; });
+  const world = new SurfingWorld(context);
   const ui = {
     h: (tag, cls, text) => h(doc, tag, cls, text),
     sheet: opts => sheet(doc, opts),
@@ -52,7 +51,7 @@ async function withPanel(run: (panel: {
   const ctx = { root, ui, signal, invoke, async refresh() {} } as WebUiPanelContext;
   try {
     await client.panels.config.mount(ctx);
-    await run({ root, world, cfg, opened: () => opened, invoke, persisted, window: dom.window, failSaves: next => { failing = next; } });
+    await run({ root, world, cfg, invoke, persisted, window: dom.window, failSaves: next => { failing = next; } });
   } finally { controller.abort(); dom.window.close(); await world.stop(); rmSync(dir, { recursive: true, force: true }); }
 }
 
@@ -65,11 +64,11 @@ test('配置面板合并全部设置，Microlink 步骤写明 API Key 的控制�
   expect(root.textContent).toContain('用于 surfing_search_all 及其贴吧续搜，下次调用生效。');
   expect(root.querySelector('a')?.href).toBe('https://dashboard.microlink.io/signup');
   const steps = [...root.querySelectorAll('ol li')].map(element => element.textContent);
-  expect(steps).toHaveLength(5);
+  expect(steps).toHaveLength(4);
   expect(steps[0]).toContain('注册账号并登录');
   expect(steps[1]).toContain('左侧选择「Overview」，点击「Usage」标签');
   expect(steps[2]).toContain('「Development」标签右上角的「…」，复制 API Key');
-  expect(steps[3]).toContain(`${SURFING_MICROLINK_SECRET}=`);
+  expect(steps[3]).toContain('输入框');
 }));
 
 test('代理兼容模式默认关闭，保存成功后才显示开启，失败时保持原状态', () => withPanel(async ({ root, cfg, failSaves }) => {
@@ -170,19 +169,12 @@ test('保存只接受声明过的配置项', () => withPanel(async ({ invoke, cf
   expect(persisted).toEqual([]);
 }));
 
-test('打开真实部署密钥文件并刷新编辑状态，不返回密钥', () => withPanel(async ({ root, opened, invoke }) => {
-  const findButton = (text: string) => [...root.querySelectorAll('button')].find(element => element.textContent === text)!;
-  expect(root.querySelector('.pill')?.textContent).toBe('免 Key');
-  findButton('打开密钥文件').click();
-  await vi.waitFor(() => expect(root.textContent).toContain('已打开密钥文件'));
-  expect(readFileSync(opened(), 'utf8')).toContain(`${SURFING_MICROLINK_SECRET}=\n`);
-  writeFileSync(opened(), `${SURFING_MICROLINK_SECRET}=fixture-credential\n`);
-  findButton('刷新密钥状态').click();
+test('保存 Microlink 密钥后清空输入框，状态只显示是否已配置', () => withPanel(async ({ root, invoke }) => {
+  const input = root.querySelector<HTMLInputElement>('input[type=password]')!;
+  input.value = 'fixture-credential';
+  [...root.querySelectorAll('button')].find(button => button.textContent === '保存密钥')!.click();
   await vi.waitFor(() => expect(root.querySelector('.pill')?.textContent).toBe('API Key 已配置'));
-  expect(root.textContent).not.toContain('fixture-credential');
-  expect(JSON.stringify(await invoke('state'))).not.toContain('fixture-credential');
-  expect(await invoke<{ keySet: boolean }>('state')).toMatchObject({ keySet: true });
-  writeFileSync(opened(), `${SURFING_MICROLINK_SECRET}=\n`);
-  findButton('刷新密钥状态').click();
-  await vi.waitFor(() => expect(root.querySelector('.pill')?.textContent).toBe('免 Key'));
+  expect(input.value).toBe('');
+  expect(JSON.stringify(await invoke('saveKey', ['']))).not.toContain('fixture-credential');
+  expect(await invoke('state')).toMatchObject({ keySet: true });
 }));

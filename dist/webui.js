@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js
+// ../../../../../Desktop/Proj/cortico-world-surfing/node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js
 var require_ipaddr = __commonJS({
-  "node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js"(exports, module) {
+  "../../../../../Desktop/Proj/cortico-world-surfing/node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js"(exports, module) {
     (function(root) {
       "use strict";
       const ipv4Part = "(0?\\d+|0x[a-f0-9]+)";
@@ -843,7 +843,6 @@ var require_ipaddr = __commonJS({
 var import_ipaddr = __toESM(require_ipaddr(), 1);
 
 // src/config.ts
-var SURFING_MICROLINK_SECRET = "CORTICO_SURFING_MICROLINK_API_KEY";
 var PROXY_MODE_PATH = "worlds.surfing.network.proxyCompatibility";
 var PROXY_RANGES_PATH = "worlds.surfing.network.customProxyRanges";
 var SURFING_DEFAULTS = {
@@ -1066,7 +1065,7 @@ async function mount(ctx) {
     const toggles = ui.h("div", "segwrap umulti");
     toggles.style.flexWrap = "wrap";
     for (const [path, property] of Object.entries(group.schema.properties)) {
-      const save = (value, apply) => saveValue(path, property.title, saved, value, apply);
+      const save2 = (value, apply) => saveValue(path, property.title, saved, value, apply);
       if (property.type === "boolean") {
         const toggle = ui.h("button", "seg", property.title);
         toggle.type = "button";
@@ -1075,7 +1074,7 @@ async function mount(ctx) {
         toggle.addEventListener("click", () => {
           const value = !toggle.classList.contains("active");
           showPressed(toggle, value);
-          save(value);
+          save2(value);
         }, { signal: ctx.signal });
         toggles.append(toggle);
         continue;
@@ -1084,7 +1083,7 @@ async function mount(ctx) {
       note.id = path;
       const scale = property["x-scale"] ?? 1;
       const input = ui.input({ type: "number", value: String(Number(state.values[path]) / scale), onChange: (value) => {
-        save(Number(value) * scale, (next) => {
+        save2(Number(value) * scale, (next) => {
           if (input.value === value) input.value = String(Number(next) / scale);
         });
       } });
@@ -1135,34 +1134,25 @@ async function mount(ctx) {
       keyStatus.classList.add("bad");
     }
   }
-  const keyBar = ui.rowbar();
-  keyBar.append(
-    keyPill,
-    ui.button("\u6253\u5F00\u5BC6\u94A5\u6587\u4EF6", { onClick: () => {
-      void keyAction(async () => {
-        await ctx.invoke("openKeyFile");
-        return "\u5DF2\u6253\u5F00\u5BC6\u94A5\u6587\u4EF6";
-      });
-    } }),
-    ui.button("\u5237\u65B0\u5BC6\u94A5\u72B6\u6001", { onClick: () => {
-      void keyAction(async () => {
-        showKey((await ctx.invoke("state")).keySet);
-        void ctx.refresh().catch(() => void 0);
-        return "\u5DF2\u5237\u65B0\u5BC6\u94A5\u72B6\u6001";
-      });
-    } }),
-    keyStatus
-  );
-  showKey(state.keySet);
+  const keyInput = ui.input({ type: "password", cls: "mono", onCommit: () => save.click() });
+  const save = ui.button("\u4FDD\u5B58\u5BC6\u94A5", { size: "sm", variant: "primary", onClick: () => {
+    if (!keyInput.value.trim()) return;
+    void keyAction(async () => {
+      const next = await ctx.invoke("saveKey", [keyInput.value]);
+      keyInput.value = "";
+      showKey(next.keySet);
+      return "\u5DF2\u4FDD\u5B58";
+    });
+  } });
+  const keyRow = ui.rowbar();
+  keyRow.append(keyInput, save);
   const steps = ui.h("ol");
   steps.style.cssText = "list-style:decimal;padding-left:24px;margin:6px 0;line-height:1.8";
-  const secret = ui.h("code", "mono", `${SURFING_MICROLINK_SECRET}=`);
   for (const parts of [
     ["\u6253\u5F00", anchor("Microlink \u6CE8\u518C\u9875", "https://dashboard.microlink.io/signup"), "\uFF0C\u6CE8\u518C\u8D26\u53F7\u5E76\u767B\u5F55\uFF0C\u65E0\u9700\u8D2D\u4E70\u4ED8\u8D39\u5957\u9910\u3002"],
     ["\u5728\u63A7\u5236\u53F0\u5DE6\u4FA7\u9009\u62E9\u300COverview\u300D\uFF0C\u70B9\u51FB\u300CUsage\u300D\u6807\u7B7E\u3002"],
     ["\u70B9\u51FB\u300CDevelopment\u300D\u6807\u7B7E\u53F3\u4E0A\u89D2\u7684\u300C\u2026\u300D\uFF0C\u590D\u5236 API Key\u3002"],
-    ["\u70B9\u51FB\u300C\u6253\u5F00\u5BC6\u94A5\u6587\u4EF6\u300D\uFF0C\u5C06 Key \u586B\u5728 ", secret, " \u540E\u9762\uFF0C\u4E0D\u52A0\u5F15\u53F7\uFF0C\u4FDD\u5B58\u6587\u4EF6\u3002"],
-    ["\u4FDD\u5B58\u540E\uFF0C\u4E0B\u6B21\u8FDC\u7A0B\u8BFB\u53D6\u4F7F\u7528\u8BE5 Key \u7684\u989D\u5EA6\u3002\u70B9\u51FB\u300C\u5237\u65B0\u5BC6\u94A5\u72B6\u6001\u300D\u53EF\u67E5\u770B\u914D\u7F6E\u72B6\u6001\u3002\u6E05\u7A7A Key \u7684\u503C\u5E76\u4FDD\u5B58\u53EF\u6062\u590D\u514D Key \u8C03\u7528\u3002"]
+    ["\u5728 Microlink API Key \u8F93\u5165\u6846\u7C98\u8D34\u5E76\u4FDD\u5B58\u3002"]
   ]) {
     const step = ui.h("li");
     step.append(...parts);
@@ -1172,11 +1162,12 @@ async function mount(ctx) {
   limits.append("\u514D Key \u548C\u514D\u8D39 Key \u7684\u989D\u5EA6\u4E0D\u540C\uFF0C\u5F53\u524D\u9650\u5236\u89C1", anchor("Microlink \u989D\u5EA6\u8BF4\u660E", "https://microlink.io/docs/api/basics/rate-limit"), "\u3002");
   const microlink = ui.sheet({
     title: "Microlink \u8FDC\u7A0B\u6E32\u67D3",
-    desc: "\u672C\u673A Chromium \u4E0D\u53EF\u7528\u65F6\uFF0C\u5C06\u7F51\u9875 URL \u4EA4\u7ED9 Microlink \u6E32\u67D3\u3002API Key \u53EF\u9009\uFF0C\u7559\u7A7A\u4F7F\u7528\u514D Key \u989D\u5EA6\u3002"
+    desc: "\u672C\u673A Chromium \u4E0D\u53EF\u7528\u65F6\uFF0C\u5C06\u7F51\u9875 URL \u4EA4\u7ED9 Microlink \u6E32\u67D3\u3002API Key \u53EF\u9009\uFF0C\u672A\u914D\u7F6E\u65F6\u4F7F\u7528\u514D Key \u989D\u5EA6\u3002"
   });
   const help = ui.foldSheet("surfing-microlink-key", { title: "\u5982\u4F55\u53D6\u5F97 API Key", defaultOpen: false });
   help.body.append(steps, limits);
-  microlink.body.append(keyBar, help.el);
+  microlink.body.append(keyPill, ui.field("Microlink API Key", keyRow), keyStatus, help.el);
+  showKey(state.keySet);
   layout.append(microlink.el);
   ctx.root.replaceChildren(layout);
 }

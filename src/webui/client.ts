@@ -1,5 +1,5 @@
 import type { WebUiClientBundle, WebUiPanelContext } from 'cortico/web/shared/client-panel.ts';
-import { PROXY_MODE_PATH, PROXY_RANGES_PATH, SURFING_CONFIG_GROUPS, SURFING_LIMITS_CONFIG_GROUP, SURFING_MICROLINK_SECRET, SURFING_PROXY_CONFIG_GROUP } from '../config.ts';
+import { PROXY_MODE_PATH, PROXY_RANGES_PATH, SURFING_CONFIG_GROUPS, SURFING_LIMITS_CONFIG_GROUP, SURFING_PROXY_CONFIG_GROUP } from '../config.ts';
 
 type ConfigValue = number | boolean | string;
 interface ConfigState { values: Record<string, ConfigValue>; keySet: boolean }
@@ -131,25 +131,25 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     try { keyStatus.textContent = await run(); keyStatus.classList.remove('bad'); }
     catch (error) { keyStatus.textContent = errorText(error); keyStatus.classList.add('bad'); }
   }
-  const keyBar = ui.rowbar();
-  keyBar.append(keyPill,
-    ui.button('打开密钥文件', { onClick: () => { void keyAction(async () => { await ctx.invoke('openKeyFile'); return '已打开密钥文件'; }); } }),
-    ui.button('刷新密钥状态', { onClick: () => { void keyAction(async () => {
-      showKey((await ctx.invoke<ConfigState>('state')).keySet);
-      void ctx.refresh().catch(() => undefined);
-      return '已刷新密钥状态';
-    }); } }), keyStatus);
-  showKey(state.keySet);
-
+  const keyInput = ui.input({ type: 'password', cls: 'mono', onCommit: () => save.click() });
+  const save = ui.button('保存密钥', { size: 'sm', variant: 'primary', onClick: () => {
+    if (!keyInput.value.trim()) return;
+    void keyAction(async () => {
+      const next = await ctx.invoke<ConfigState>('saveKey', [keyInput.value]);
+      keyInput.value = '';
+      showKey(next.keySet);
+      return '已保存';
+    });
+  } });
+  const keyRow = ui.rowbar();
+  keyRow.append(keyInput, save);
   const steps = ui.h('ol');
   steps.style.cssText = 'list-style:decimal;padding-left:24px;margin:6px 0;line-height:1.8';
-  const secret = ui.h('code', 'mono', `${SURFING_MICROLINK_SECRET}=`);
   for (const parts of [
     ['打开', anchor('Microlink 注册页', 'https://dashboard.microlink.io/signup'), '，注册账号并登录，无需购买付费套餐。'],
     ['在控制台左侧选择「Overview」，点击「Usage」标签。'],
     ['点击「Development」标签右上角的「…」，复制 API Key。'],
-    ['点击「打开密钥文件」，将 Key 填在 ', secret, ' 后面，不加引号，保存文件。'],
-    ['保存后，下次远程读取使用该 Key 的额度。点击「刷新密钥状态」可查看配置状态。清空 Key 的值并保存可恢复免 Key 调用。'],
+    ['在 Microlink API Key 输入框粘贴并保存。'],
   ]) {
     const step = ui.h('li');
     step.append(...parts);
@@ -159,11 +159,12 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
   limits.append('免 Key 和免费 Key 的额度不同，当前限制见', anchor('Microlink 额度说明', 'https://microlink.io/docs/api/basics/rate-limit'), '。');
   const microlink = ui.sheet({
     title: 'Microlink 远程渲染',
-    desc: '本机 Chromium 不可用时，将网页 URL 交给 Microlink 渲染。API Key 可选，留空使用免 Key 额度。',
+    desc: '本机 Chromium 不可用时，将网页 URL 交给 Microlink 渲染。API Key 可选，未配置时使用免 Key 额度。',
   });
   const help = ui.foldSheet('surfing-microlink-key', { title: '如何取得 API Key', defaultOpen: false });
   help.body.append(steps, limits);
-  microlink.body.append(keyBar, help.el);
+  microlink.body.append(keyPill, ui.field('Microlink API Key', keyRow), keyStatus, help.el);
+  showKey(state.keySet);
   layout.append(microlink.el);
   ctx.root.replaceChildren(layout);
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.1 - 2026-11-13
+
+- Save the Microlink API key directly in the Surfing panel. The compact password field clears after saving, and leaving it empty preserves the existing key.
+
 ## 0.4.0 - 2026-11-06
 
 - Add `surfing_search_all`, which searches Bilibili, Tieba, Moegirlpedia and Baidu Baike in parallel and returns short results. Open numbered results and further Tieba results with `surfing_read_page`. The WebUI has a switch for each source and a per-source result limit.
