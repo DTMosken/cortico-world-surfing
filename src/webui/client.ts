@@ -131,20 +131,18 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     try { keyStatus.textContent = await run(); keyStatus.classList.remove('bad'); }
     catch (error) { keyStatus.textContent = errorText(error); keyStatus.classList.add('bad'); }
   }
-  const keyInput = ui.input({ type: 'password' });
-  const keyBar = ui.rowbar();
-  keyBar.append(keyPill, ui.field('Microlink API Key', keyInput),
-    ui.button('保存密钥', { onClick: () => {
-      if (!keyInput.value.trim()) return;
-      void keyAction(async () => {
-        const next = await ctx.invoke<ConfigState>('saveKey', [keyInput.value]);
-        keyInput.value = '';
-        showKey(next.keySet);
-        return '已保存';
-      });
-    } }), keyStatus);
-  showKey(state.keySet);
-
+  const keyInput = ui.input({ type: 'password', cls: 'mono grow', onCommit: () => save.click() });
+  const save = ui.button('保存密钥', { size: 'sm', variant: 'primary', onClick: () => {
+    if (!keyInput.value.trim()) return;
+    void keyAction(async () => {
+      const next = await ctx.invoke<ConfigState>('saveKey', [keyInput.value]);
+      keyInput.value = '';
+      showKey(next.keySet);
+      return '已保存';
+    });
+  } });
+  const keyRow = ui.rowbar();
+  keyRow.append(keyInput, save);
   const steps = ui.h('ol');
   steps.style.cssText = 'list-style:decimal;padding-left:24px;margin:6px 0;line-height:1.8';
   for (const parts of [
@@ -165,7 +163,8 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
   });
   const help = ui.foldSheet('surfing-microlink-key', { title: '如何取得 API Key', defaultOpen: false });
   help.body.append(steps, limits);
-  microlink.body.append(keyBar, help.el);
+  microlink.body.append(keyPill, ui.field('Microlink API Key', keyRow), keyStatus, help.el);
+  showKey(state.keySet);
   layout.append(microlink.el);
   ctx.root.replaceChildren(layout);
 }

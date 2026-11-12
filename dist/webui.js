@@ -1065,7 +1065,7 @@ async function mount(ctx) {
     const toggles = ui.h("div", "segwrap umulti");
     toggles.style.flexWrap = "wrap";
     for (const [path, property] of Object.entries(group.schema.properties)) {
-      const save = (value, apply) => saveValue(path, property.title, saved, value, apply);
+      const save2 = (value, apply) => saveValue(path, property.title, saved, value, apply);
       if (property.type === "boolean") {
         const toggle = ui.h("button", "seg", property.title);
         toggle.type = "button";
@@ -1074,7 +1074,7 @@ async function mount(ctx) {
         toggle.addEventListener("click", () => {
           const value = !toggle.classList.contains("active");
           showPressed(toggle, value);
-          save(value);
+          save2(value);
         }, { signal: ctx.signal });
         toggles.append(toggle);
         continue;
@@ -1083,7 +1083,7 @@ async function mount(ctx) {
       note.id = path;
       const scale = property["x-scale"] ?? 1;
       const input = ui.input({ type: "number", value: String(Number(state.values[path]) / scale), onChange: (value) => {
-        save(Number(value) * scale, (next) => {
+        save2(Number(value) * scale, (next) => {
           if (input.value === value) input.value = String(Number(next) / scale);
         });
       } });
@@ -1134,23 +1134,18 @@ async function mount(ctx) {
       keyStatus.classList.add("bad");
     }
   }
-  const keyInput = ui.input({ type: "password" });
-  const keyBar = ui.rowbar();
-  keyBar.append(
-    keyPill,
-    ui.field("Microlink API Key", keyInput),
-    ui.button("\u4FDD\u5B58\u5BC6\u94A5", { onClick: () => {
-      if (!keyInput.value.trim()) return;
-      void keyAction(async () => {
-        const next = await ctx.invoke("saveKey", [keyInput.value]);
-        keyInput.value = "";
-        showKey(next.keySet);
-        return "\u5DF2\u4FDD\u5B58";
-      });
-    } }),
-    keyStatus
-  );
-  showKey(state.keySet);
+  const keyInput = ui.input({ type: "password", cls: "mono grow", onCommit: () => save.click() });
+  const save = ui.button("\u4FDD\u5B58\u5BC6\u94A5", { size: "sm", variant: "primary", onClick: () => {
+    if (!keyInput.value.trim()) return;
+    void keyAction(async () => {
+      const next = await ctx.invoke("saveKey", [keyInput.value]);
+      keyInput.value = "";
+      showKey(next.keySet);
+      return "\u5DF2\u4FDD\u5B58";
+    });
+  } });
+  const keyRow = ui.rowbar();
+  keyRow.append(keyInput, save);
   const steps = ui.h("ol");
   steps.style.cssText = "list-style:decimal;padding-left:24px;margin:6px 0;line-height:1.8";
   for (const parts of [
@@ -1171,7 +1166,8 @@ async function mount(ctx) {
   });
   const help = ui.foldSheet("surfing-microlink-key", { title: "\u5982\u4F55\u53D6\u5F97 API Key", defaultOpen: false });
   help.body.append(steps, limits);
-  microlink.body.append(keyBar, help.el);
+  microlink.body.append(keyPill, ui.field("Microlink API Key", keyRow), keyStatus, help.el);
+  showKey(state.keySet);
   layout.append(microlink.el);
   ctx.root.replaceChildren(layout);
 }
