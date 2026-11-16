@@ -34,6 +34,21 @@ test.each(['','<p>Loading...</p>'])('空壳或短占位网页经浏览器后备�
   } finally {operation.close();await reader.stop();}
 });
 
+test('异步正文加载超过 1.5 秒时仍等待完成再提取', async () => {
+  const operation = fixtureOperation('<main><p id="text"></p></main><script>fetch("/data").then(r=>r.json()).then(d=>document.querySelector("#text").textContent=d.text)</script>');
+  const get = operation.get.bind(operation);
+  operation.get = async (url, options) => {
+    if (new URL(url).pathname === '/data') await new Promise(resolve => setTimeout(resolve, 2200));
+    return get(url, options);
+  };
+  const reader = new PageReader();
+  try {
+    const result = await reader.read('https://example.org/article', operation, 8*1024*1024);
+    expect(result.scope.extraction).toBe('rendered-html');
+    expect(result.units.filter(x=>x.kind==='text').map(x=>x.text).join('')).toContain('动态正文已经加载。');
+  } finally { operation.close(); await reader.stop(); }
+});
+
 test('浏览器与远程读取均不可用时保留短静态原文并说明原因', async () => {
   const operation = fixtureOperation('<main><p>公开静态正文。</p></main><script src="/analytics.js"></script>');
   const reader = new PageReader(new Renderer(async()=>{throw new Error('browser missing');}));

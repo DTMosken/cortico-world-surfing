@@ -2,7 +2,7 @@
 import { lookup } from 'node:dns/promises';
 import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { isIP } from 'node:net';
+import { isIP, type TcpNetConnectOpts } from 'node:net';
 import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
 import ipaddr from 'ipaddr.js';
 import { commonProxyRanges, inAddressRanges, parseAddressRanges, type AddressRange } from './address-ranges.ts';
@@ -140,15 +140,19 @@ class Operation implements ReadOperation {
     const denied = addresses.filter(a => !isPublicAddress(a.address));
     if (!addresses.length || denied.some(a => !inAddressRanges(a.address, this.proxyRanges)))
       throw new ReadError('address_denied', addressDeniedMessage(denied, this.limits.proxyCompatibility));
-    return this.request(url, addresses.find(a => a.family === 4) ?? addresses[0], options, body);
+    return this.request(url, addresses, options, body);
   }
 
-  private request(url: URL, selected: Address, options: GetOptions, body?: string): Promise<PublicResponse> {
+  private request(url: URL, addresses: Address[], options: GetOptions, body?: string): Promise<PublicResponse> {
     const headers = { ...requestHeaders(options), ...(body === undefined ? {} : { 'content-type': 'application/json' }) };
+    const connection: Pick<TcpNetConnectOpts, 'autoSelectFamily' | 'autoSelectFamilyAttemptTimeout'> = {
+      autoSelectFamily: true, autoSelectFamilyAttemptTimeout: 1000,
+    };
     return new Promise((resolve, reject) => {
       const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
-        method: body === undefined ? 'GET' : 'POST', headers, agent: false, signal: this.signal, family: selected.family,
-        lookup: (_hostname, _options, callback) => callback(null, selected.address, selected.family),
+        method: body === undefined ? 'GET' : 'POST', headers, agent: false, signal: this.signal,
+        ...connection,
+        lookup: (_hostname, _options, callback) => callback(null, addresses),
       }, response => {
         const status = response.statusCode ?? 0;
         const normalized = responseHeaders(response.headers);
@@ -187,7 +191,7 @@ class Operation implements ReadOperation {
       request.on('socket', socket => {
         const verify = () => {
           const peer = socket.remoteAddress;
-          if (!peer || ipaddr.process(peer).toString() !== ipaddr.process(selected.address).toString())
+          if (!peer || !addresses.some(selected => ipaddr.process(peer).toString() === ipaddr.process(selected.address).toString()))
             request.destroy(new ReadError('address_denied', '实际连接地址与已核验地址不一致。'));
         };
         if (socket.remoteAddress) verify(); else socket.once('connect', verify);

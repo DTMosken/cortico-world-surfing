@@ -30,6 +30,8 @@
 
 本机 Chromium 不可用时，扩展将目标网页 URL 发送给 Microlink，由其渲染后返回 HTML；正文、编号链接和章节锚点仍由本扩展提取。静态读取、Chromium 和 Microlink 共用单次读取超时及下载上限。Chromium 已启动后的网页错误、超时或取消不触发 Microlink。
 
+Chromium 等待网页请求空闲后提取正文或截图，等待时间计入单次读取超时。连接时会在已核验的 DNS 地址中尝试可用地址。
+
 ## Microlink（可选）
 
 无需 API Key 即可使用 Microlink 后备。配置 Key 后使用认证接口及该 Key 的额度；Key 仅发送给 Microlink，不进入模型回执。

@@ -223,7 +223,7 @@ export class Renderer {
     try {
       operation.signal.throwIfAborted();
       await context.routeWebSocket('**/*', socket => socket.close());
-      await context.addInitScript(() => {
+      await context.addInitScript(`
         for (const key of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'WebTransport']) {
           Object.defineProperty(globalThis, key, { value: undefined, configurable: false, writable: false });
         }
@@ -232,7 +232,7 @@ export class Renderer {
         }
         const preventDefault = Function.prototype.call.bind(Event.prototype.preventDefault);
         window.addEventListener('submit',event=>preventDefault(event),true);
-      });
+      `);
       await context.route('**/*', async route => {
         const request = route.request();
         if (request.method() !== 'GET' || !['document', 'script', 'stylesheet', 'xhr', 'fetch', ...(capture ? ['image', 'font'] : [])].includes(request.resourceType())) {
@@ -258,7 +258,7 @@ export class Renderer {
       const page = await context.newPage();
       if (capture) await page.setViewportSize({ width: options.maxImageDimension, height: Math.round(options.maxImageDimension * 0.75) });
       await page.goto(target.href, { waitUntil: 'domcontentloaded', timeout: 0 });
-      await page.waitForLoadState('networkidle', { timeout: 1500 }).catch(() => {});
+      await page.waitForLoadState('networkidle', { timeout: 0 });
       operation.signal.throwIfAborted();
       const html = await page.content();
       const finalUrl = validatePublicUrl(page.url()).href;
@@ -270,7 +270,7 @@ export class Renderer {
         if (options.page > pages) throw new ReadError('invalid_input', `网页共 ${pages} 屏，请提供范围内的 page。`);
         const top = Math.min((options.page - 1) * height, Math.max(0, fullHeight - height));
         await page.evaluate(y => { globalThis.document.documentElement.style.scrollBehavior = 'auto'; window.scrollTo(0, y); }, top);
-        await page.waitForLoadState('networkidle', { timeout: 1500 }).catch(() => {});
+        await page.waitForLoadState('networkidle', { timeout: 0 });
         const bytes = await page.screenshot({ type: 'png', timeout: 0 });
         const y = await page.evaluate(() => Math.round(window.scrollY));
         return { html, url: finalUrl,

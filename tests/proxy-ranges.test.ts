@@ -11,7 +11,8 @@ vi.mock('node:http', async original => ({
     const request = Object.assign(new EventEmitter(), {
       destroy(error: Error) { request.emit('error', error); },
       end() {
-        options.lookup('', {}, (_error: null, address: string, family: number) => {
+        options.lookup('', { all: true }, (_error: null, addresses: Address[]) => {
+          const { address, family } = addresses[0];
           connections.push({ address, family });
           request.emit('socket', { remoteAddress: address });
           respond(Object.assign(Readable.from([Buffer.from('正文')]), { statusCode: 200, headers: {} }));
@@ -38,16 +39,17 @@ async function read(addresses: Address[], limits: Partial<NetworkLimits> = {}) {
 beforeEach(() => { connections.length = 0; });
 
 test.each([
-  ['IPv4', [v4('198.18.2.27')], v4('198.18.2.27')],
-  ['IPv4 上限', [v4('198.19.255.254')], v4('198.19.255.254')],
-  ['IPv6 常见池', [v6('fdfe:dcba:9876::4')], v6('fdfe:dcba:9876::4')],
-  ['另一个 IPv6 常见池', [v6('2001:2::1')], v6('2001:2::1')],
-  ['IPv4 与 IPv6 混合', [v6('fdfe:dcba:9876::4'), v4('198.18.2.27')], v4('198.18.2.27')],
-  ['虚拟地址与公网地址混合', [v6('2606:4700:4700::1111'), v4('198.18.2.27')], v4('198.18.2.27')],
-  ['IPv4 映射写法', [v6('::ffff:198.18.2.27')], v6('::ffff:198.18.2.27')],
-])('开启后连接内置范围：%s', async (_name, addresses, selected) => {
+  ['IPv4', [v4('198.18.2.27')]],
+  ['IPv4 上限', [v4('198.19.255.254')]],
+  ['IPv6 常见池', [v6('fdfe:dcba:9876::4')]],
+  ['另一个 IPv6 常见池', [v6('2001:2::1')]],
+  ['IPv4 与 IPv6 混合', [v6('fdfe:dcba:9876::4'), v4('198.18.2.27')]],
+  ['虚拟地址与公网地址混合', [v6('2606:4700:4700::1111'), v4('198.18.2.27')]],
+  ['IPv4 映射写法', [v6('::ffff:198.18.2.27')]],
+])('开启后连接内置范围：%s', async (_name, addresses) => {
   expect((await read(addresses, { proxyCompatibility: true })).body.toString()).toBe('正文');
-  expect(connections).toEqual([selected]);
+  expect(connections).toHaveLength(1);
+  expect(addresses).toContainEqual(connections[0]);
 });
 
 test.each([
