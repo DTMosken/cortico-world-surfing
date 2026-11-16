@@ -1,12 +1,13 @@
 import { Worker } from 'node:worker_threads';
 import { ReadError, asReadError, validatePublicUrl, waitWithSignal, type FailureKind, type ReadOperation, type PublicResponse } from './network.ts';
-import { createServer, type Server } from 'node:net';
+import { createServer } from 'node:net';
 import { chromium, type Browser, type BrowserContext } from 'playwright';
 import type { Material } from './snapshots.ts';
 import { MicrolinkRenderer } from './microlink.ts';
 import { renderPdf } from './pdf-reader.ts';
 import { SURFING_DEFAULTS } from './config.ts';
 import { createBrowserProxy } from './browser-proxy.ts';
+import { attachBrowserNetwork } from './browser-network.ts';
 
 export interface PageReadOptions { mode: 'auto' | 'text' | 'visual'; page: number; maxImageDimension: number }
 const defaultOptions: PageReadOptions = { mode: 'auto', page: 1, maxImageDimension: SURFING_DEFAULTS.reading.maxImageDimension };
@@ -158,41 +159,46 @@ function screenshotMaterial(input: string, rendered: RenderedPage): Material {
       fallbackText: `网页第 ${image.page}/${image.pages} 屏，纵向位置 ${image.y} 像素；来源 ${rendered.url}` } };
 }
 
-/** Webpages use a per-read proxy; PDF contexts have no network access. */
+/** Each read owns its browser; webpages use a checked proxy and PDFs have no network access. */
 export class Renderer {
-  private browser?: Promise<Browser>;
-  private proxy?: Server;
+  private readonly closers = new Set<() => Promise<void>>();
 
   constructor(private readonly launchBrowser: typeof chromium.launch = options=>chromium.launch(options)) {}
 
-  private launch(): Promise<Browser> {
-    if (!this.browser) this.browser = (async () => {
-      const proxy = createServer(socket => socket.destroy());
-      this.proxy = proxy;
+  private launch() {
+    const proxy = createServer(socket => socket.destroy());
+    const browser = (async () => {
       await new Promise<void>((resolve, reject) => { proxy.once('error', reject); proxy.listen(0, '127.0.0.1', resolve); });
       const port = (proxy.address() as { port: number }).port;
       try {
-        return await this.launchBrowser({ headless: true, timeout: 10000,
+        return await this.launchBrowser({ headless: true, chromiumSandbox: true, timeout: 10000,
           proxy: { server: `http://127.0.0.1:${port}`, bypass: '<-loopback>' },
           args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1', '--disable-background-networking', '--disable-component-update',
             '--disable-sync', '--disable-extensions', '--disable-default-apps', '--disable-features=DnsOverHttps,WebTransport',
             '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],
         });
       } catch {
-        proxy.close();
-        if (this.proxy === proxy) { this.proxy = undefined; this.browser = undefined; }
         throw new ReadError('browser_unavailable', '动态网页读取需要 Chromium Headless Shell；在网上冲浪配置页安装，或在扩展目录执行 pnpm install:browser 后重试。');
       }
     })();
-    return this.browser;
+    let closing: Promise<void> | undefined;
+    const close = () => closing ??= (async () => {
+      await browser.then(value => value.close()).catch(() => {});
+      await new Promise<void>(resolve => proxy.close(() => resolve()));
+      this.closers.delete(close);
+    })();
+    this.closers.add(close);
+    return { browser, close };
   }
 
-  private async withContext<T>(operation: ReadOperation, run: (context: BrowserContext) => Promise<T>, proxy?: string): Promise<T> {
+  private async withContext<T>(operation: ReadOperation, run: (context: BrowserContext, browser: Browser) => Promise<T>, proxy?: string): Promise<T> {
     let context: BrowserContext | undefined;
+    let browser: Browser | undefined;
+    if (operation.signal.aborted) throw asReadError(operation.signal.reason);
+    const session = this.launch();
     const abort = () => { void context?.close().catch(() => {}); };
     try {
-      operation.signal.throwIfAborted();
-      const browser = await waitWithSignal(this.launch(), operation.signal);
+      browser = await waitWithSignal(session.browser, operation.signal);
       operation.signal.throwIfAborted();
       const opening = browser.newContext({ acceptDownloads: false, serviceWorkers: 'block', storageState: undefined,
         ...(proxy ? { proxy: { server: proxy, bypass: '<-loopback>' } } : {}) });
@@ -200,10 +206,14 @@ export class Renderer {
       catch (error) { void opening.then(value => value.close()).catch(() => {}); throw error; }
       operation.signal.addEventListener('abort', abort, { once: true });
       operation.signal.throwIfAborted();
-      return await run(context);
+      return await run(context, browser);
     }
     catch (error) { throw asReadError(operation.signal.aborted ? operation.signal.reason : error); }
-    finally { operation.signal.removeEventListener('abort', abort); await context?.close().catch(() => {}); }
+    finally {
+      operation.signal.removeEventListener('abort', abort);
+      await context?.close().catch(() => {});
+      if (browser) await session.close(); else void session.close();
+    }
   }
 
   async pdf(bytes: Uint8Array, operation: ReadOperation, options: PageReadOptions) {
@@ -219,13 +229,15 @@ export class Renderer {
     const target = validatePublicUrl(document.url);
     if (!target.hash) target.hash = original.hash;
     const proxy = await createBrowserProxy(operation);
-    try { return await this.withContext(operation, async context => {
+    try { return await this.withContext(operation, async (context, browser) => {
     let navigationError: ReadError | undefined;
     let initialNavigation = false;
     const entry = new URL(target); entry.hash = '';
     try {
       operation.signal.throwIfAborted();
-      await context.routeWebSocket('**/*', socket => socket.close());
+      await attachBrowserNetwork(browser, operation, error => {
+        navigationError = error; void context.close().catch(() => {});
+      });
       await context.addInitScript(`
         for (const key of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'WebTransport']) {
           Object.defineProperty(globalThis, key, { value: undefined, configurable: false, writable: false });
@@ -256,12 +268,6 @@ export class Renderer {
         }
       });
       const page = await context.newPage();
-      const network = await context.newCDPSession(page);
-      await network.send('Network.enable');
-      network.on('Network.dataReceived', event => {
-        try { operation.accountBytes(event.dataLength); }
-        catch (error) { navigationError = asReadError(error); void context.close().catch(() => {}); }
-      });
       if (capture) await page.setViewportSize({ width: options.maxImageDimension, height: Math.round(options.maxImageDimension * 0.75) });
       await page.goto(target.href, { waitUntil: 'domcontentloaded', timeout: 0 });
       await page.waitForLoadState('networkidle', { timeout: 0 });
@@ -292,10 +298,6 @@ export class Renderer {
   }
 
   async stop(): Promise<void> {
-    const browser = this.browser;
-    const proxy = this.proxy;
-    this.browser = undefined; this.proxy = undefined;
-    await browser?.then(value => value.close()).catch(() => {});
-    if (proxy) await new Promise<void>(resolve => proxy.close(() => resolve()));
+    await Promise.all([...this.closers].map(close => close()));
   }
 }

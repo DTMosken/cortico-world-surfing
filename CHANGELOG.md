@@ -8,6 +8,7 @@
 - Connect using the validated DNS address list so an unreachable first address does not prevent trying the others.
 - Load rendered webpage resources through Chromium's native HTTPS and HTTP/2 connections. A per-read proxy pins DNS results; cookies stay in the anonymous reading context, and decoded response bytes count toward the shared download limit.
 - Raise the default reading timeout to 60 seconds to cover dynamic page resources and extraction. Existing configured values are preserved.
+- Enable Chromium sandboxing for webpage/PDF reading and installation checks. Enforce decoded download limits and WebSocket restrictions across dedicated, nested and shared Workers while preserving their GET reads. Each read owns its browser.
 
 ## 0.4.1 - 2026-11-13
 

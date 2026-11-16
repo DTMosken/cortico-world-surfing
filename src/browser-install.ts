@@ -8,7 +8,7 @@ export interface BrowserInstallState {
 }
 
 async function probeBrowser(): Promise<void> {
-  const browser = await chromium.launch({ headless: true, timeout: 10000 });
+  const browser = await chromium.launch({ headless: true, chromiumSandbox: true, timeout: 10000 });
   await browser.close();
 }
 
