@@ -11,6 +11,7 @@ import { ReadError, asReadError, PublicClient, waitWithSignal, type ReadOperatio
 import { PageReader, pageKey } from './page-reader.ts';
 import { SnapshotCache, estimateTokens, type Material } from './snapshots.ts';
 import { MicrolinkRenderer } from './microlink.ts';
+import { BrowserInstaller } from './browser-install.ts';
 import { SITE_SOURCES, continueTieba, searchSites } from './sites.ts';
 
 const ENV_PROMPT_FILE = fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url));
@@ -79,7 +80,8 @@ export class SurfingWorld implements World {
   private stopped = false;
   private last?: { status: string; failed: boolean; estimatedTokens: number; sourceTruncated: boolean };
 
-  constructor(private readonly ctx: WorldContext<SurfingConfigSection>, private readonly client = new PublicClient()) {
+  constructor(private readonly ctx: WorldContext<SurfingConfigSection>, private readonly client = new PublicClient(),
+    private readonly browserInstaller = new BrowserInstaller()) {
     applyConfigDefaults(ctx.cfg);
     this.pages = new PageReader(undefined, new MicrolinkRenderer(() => ctx.secret(SURFING_MICROLINK_SECRET)));
   }
@@ -241,6 +243,8 @@ export class SurfingWorld implements World {
       invoke: async (panel, method, args) => {
         if (panel !== 'config') throw new Error('未知面板。');
         if (method === 'state') return this.configState();
+        if (method === 'browserState') return this.browserInstaller.state();
+        if (method === 'installBrowser') return this.browserInstaller.install();
         if (method === 'save') { this.saveConfig(args[0], args[1]); return this.configState(); }
         if (method === 'saveKey') {
           const [value] = args;

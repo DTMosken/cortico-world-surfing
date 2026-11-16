@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
@@ -12,11 +12,12 @@ import { button, foldSheet, msgline, pill, rowbar, sheet } from 'cortico/web/cli
 import { SURFING_DEFAULTS, type SurfingConfigSection } from '../src/config.ts';
 import { SurfingWorld } from '../src/world.ts';
 import client from '../src/webui/client.ts';
+import { BrowserInstaller } from '../src/browser-install.ts';
 
 async function withPanel(run: (panel: {
   root: HTMLElement; world: SurfingWorld; cfg: SurfingConfigSection;
   invoke: WebUiPanelContext['invoke']; persisted: unknown[]; window: JSDOM['window']; failSaves: (failing: boolean) => void;
-}) => Promise<void>): Promise<void> {
+}) => Promise<void>, browserInstaller = new BrowserInstaller(async () => { throw new Error('浏览器未安装'); })): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'surfing-webui-'));
   const dom = new JSDOM('<div id="root"></div>');
   const doc = dom.window.document;
@@ -36,7 +37,7 @@ async function withPanel(run: (panel: {
     },
     async restart() {},
   };
-  const world = new SurfingWorld(context);
+  const world = new SurfingWorld(context, undefined, browserInstaller);
   const ui = {
     h: (tag, cls, text) => h(doc, tag, cls, text),
     sheet: opts => sheet(doc, opts),
@@ -48,7 +49,12 @@ async function withPanel(run: (panel: {
   } satisfies Pick<WebUi, 'h' | 'sheet' | 'foldSheet' | 'field' | 'button' | 'msgline' | 'pill' | 'rowbar' | 'input' | 'textarea'>;
   const root = doc.querySelector<HTMLElement>('#root')!;
   const invoke = <T>(method: string, args: unknown[] = []) => world.webUi().invoke!('config', method, args) as Promise<T>;
-  const ctx = { root, ui, signal, invoke, async refresh() {} } as WebUiPanelContext;
+  const ctx = { root, ui, signal, invoke, async refresh() {}, interval(fn: () => void, ms: number) {
+    const timer = setInterval(fn, ms);
+    const dispose = () => clearInterval(timer);
+    signal.addEventListener('abort', dispose, { once: true });
+    return { dispose };
+  } } as WebUiPanelContext;
   try {
     await client.panels.config.mount(ctx);
     await run({ root, world, cfg, invoke, persisted, window: dom.window, failSaves: next => { failing = next; } });
@@ -57,7 +63,7 @@ async function withPanel(run: (panel: {
 
 test('配置面板合并全部设置，Microlink 步骤写明 API Key 的控制台路径', () => withPanel(async ({ root }) => {
   const sections = [...root.querySelectorAll('h3')].map(element => element.textContent);
-  expect(sections).toEqual(['阅读与字幕', '站点搜索', '代理', '高级设置', '获取与缓存限制', 'Microlink 远程渲染', '如何取得 API Key']);
+  expect(sections).toEqual(['阅读与字幕', '站点搜索', '代理', '高级设置', '获取与缓存限制', '本机网页渲染', '安装详情', 'Microlink 远程渲染', '如何取得 API Key']);
   expect(root.querySelectorAll('input[type=number]')).toHaveLength(10);
   expect([...root.querySelectorAll('[aria-labelledby="world:surfing:search:sources"] button')].map(button => [button.textContent, button.getAttribute('aria-pressed')]))
     .toEqual(['B站', '贴吧', '萌娘百科', '百度百科', '缩写释义'].map(source => [source, 'true']));
@@ -178,3 +184,23 @@ test('保存 Microlink 密钥后清空输入框，状态只显示是否已配置
   expect(JSON.stringify(await invoke('saveKey', ['']))).not.toContain('fixture-credential');
   expect(await invoke('state')).toMatchObject({ keySet: true });
 }));
+
+test('配置页安装后显示可用状态，已安装时禁用按钮', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'surfing-panel-install-'));
+  const ready = join(dir, 'ready');
+  const script = join(dir, 'installer.cjs');
+  writeFileSync(script, "console.log('Download complete'); require('node:fs').writeFileSync(process.argv[2], 'ready');");
+  const installer = new BrowserInstaller(async () => { if (!existsSync(ready)) throw new Error('浏览器未安装'); },
+    [process.execPath, script, ready]);
+  try {
+    await withPanel(async ({ root }) => {
+      const button = [...root.querySelectorAll('button')].find(button => button.textContent === '安装 Headless Shell')!;
+      await vi.waitFor(() => expect(button.disabled).toBe(false));
+      button.click();
+      expect(button.disabled).toBe(true);
+      await vi.waitFor(() => expect(root.textContent).toContain('已安装 · 可用'), { timeout: 5000 });
+      expect(root.querySelector('pre')?.textContent).toContain('Download complete');
+      expect(button.disabled).toBe(true);
+    }, installer);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

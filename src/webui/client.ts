@@ -1,4 +1,5 @@
 import type { WebUiClientBundle, WebUiPanelContext } from 'cortico/web/shared/client-panel.ts';
+import type { BrowserInstallState } from '../browser-install.ts';
 import { PROXY_MODE_PATH, PROXY_RANGES_PATH, SURFING_CONFIG_GROUPS, SURFING_LIMITS_CONFIG_GROUP, SURFING_PROXY_CONFIG_GROUP } from '../config.ts';
 
 type ConfigValue = number | boolean | string;
@@ -115,6 +116,45 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     sheet.body.append(grid, saved);
     layout.append(sheet.el);
   }
+
+  const browser = ui.sheet({ title: '本机网页渲染',
+    desc: '下载 Chromium Headless Shell 到 Cortico 所在机器。安装完成后，下次读取生效。' });
+  const browserStatus = ui.msgline('正在检查浏览器…');
+  browserStatus.setAttribute('role', 'status');
+  const browserLog = ui.h('pre', 'mono');
+  browserLog.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto';
+  const browserHelp = ui.foldSheet('surfing-browser-log', { title: '安装详情', defaultOpen: false });
+  browserHelp.body.append(browserLog, ui.h('p', 'muted', '也可在扩展目录运行 pnpm install:browser。Linux 缺少系统库时，按日志提示安装。'));
+  let browserState: BrowserInstallState | undefined;
+  let polling = false;
+  const showBrowser = (next: BrowserInstallState): void => {
+    browserState = next;
+    browserStatus.textContent = { missing: '未安装或无法启动', installing: '安装中…', ready: '已安装 · 可用', failed: '安装失败' }[next.status];
+    browserStatus.classList.toggle('bad', next.status === 'failed');
+    install.disabled = next.status === 'installing' || next.status === 'ready';
+    install.textContent = next.status === 'failed' ? '重试安装' : '安装 Headless Shell';
+    browserLog.textContent = next.log;
+  };
+  const browserError = (error: unknown): void => {
+    browserStatus.textContent = errorText(error); browserStatus.classList.add('bad');
+  };
+  const install = ui.button('安装 Headless Shell', { variant: 'primary', onClick: () => {
+    install.disabled = true;
+    void ctx.invoke<BrowserInstallState>('installBrowser').then(showBrowser).catch(error => {
+      install.disabled = false; browserError(error);
+    });
+  } });
+  install.disabled = true;
+  browser.body.append(browserStatus, install, browserHelp.el);
+  layout.append(browser.el);
+  ctx.interval(() => {
+    if (browserState?.status !== 'installing' || polling) return;
+    polling = true;
+    void ctx.invoke<BrowserInstallState>('browserState').then(showBrowser).catch(browserError).finally(() => { polling = false; });
+  }, 1000);
+  void ctx.invoke<BrowserInstallState>('browserState').then(showBrowser).catch(error => {
+    install.disabled = false; browserError(error);
+  });
 
   const anchor = (text: string, href: string): HTMLAnchorElement => {
     const link = ui.h('a', null, text);

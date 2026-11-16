@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../../../Desktop/Proj/cortico-world-surfing/node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js
+// ../../node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js
 var require_ipaddr = __commonJS({
-  "../../../../../Desktop/Proj/cortico-world-surfing/node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js"(exports, module) {
+  "../../node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js"(exports, module) {
     (function(root) {
       "use strict";
       const ipv4Part = "(0?\\d+|0x[a-f0-9]+)";
@@ -1111,6 +1111,51 @@ async function mount(ctx) {
     sheet.body.append(grid, saved);
     layout.append(sheet.el);
   }
+  const browser = ui.sheet({
+    title: "\u672C\u673A\u7F51\u9875\u6E32\u67D3",
+    desc: "\u4E0B\u8F7D Chromium Headless Shell \u5230 Cortico \u6240\u5728\u673A\u5668\u3002\u5B89\u88C5\u5B8C\u6210\u540E\uFF0C\u4E0B\u6B21\u8BFB\u53D6\u751F\u6548\u3002"
+  });
+  const browserStatus = ui.msgline("\u6B63\u5728\u68C0\u67E5\u6D4F\u89C8\u5668\u2026");
+  browserStatus.setAttribute("role", "status");
+  const browserLog = ui.h("pre", "mono");
+  browserLog.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto";
+  const browserHelp = ui.foldSheet("surfing-browser-log", { title: "\u5B89\u88C5\u8BE6\u60C5", defaultOpen: false });
+  browserHelp.body.append(browserLog, ui.h("p", "muted", "\u4E5F\u53EF\u5728\u6269\u5C55\u76EE\u5F55\u8FD0\u884C pnpm install:browser\u3002Linux \u7F3A\u5C11\u7CFB\u7EDF\u5E93\u65F6\uFF0C\u6309\u65E5\u5FD7\u63D0\u793A\u5B89\u88C5\u3002"));
+  let browserState;
+  let polling = false;
+  const showBrowser = (next) => {
+    browserState = next;
+    browserStatus.textContent = { missing: "\u672A\u5B89\u88C5\u6216\u65E0\u6CD5\u542F\u52A8", installing: "\u5B89\u88C5\u4E2D\u2026", ready: "\u5DF2\u5B89\u88C5 \xB7 \u53EF\u7528", failed: "\u5B89\u88C5\u5931\u8D25" }[next.status];
+    browserStatus.classList.toggle("bad", next.status === "failed");
+    install.disabled = next.status === "installing" || next.status === "ready";
+    install.textContent = next.status === "failed" ? "\u91CD\u8BD5\u5B89\u88C5" : "\u5B89\u88C5 Headless Shell";
+    browserLog.textContent = next.log;
+  };
+  const browserError = (error) => {
+    browserStatus.textContent = errorText(error);
+    browserStatus.classList.add("bad");
+  };
+  const install = ui.button("\u5B89\u88C5 Headless Shell", { variant: "primary", onClick: () => {
+    install.disabled = true;
+    void ctx.invoke("installBrowser").then(showBrowser).catch((error) => {
+      install.disabled = false;
+      browserError(error);
+    });
+  } });
+  install.disabled = true;
+  browser.body.append(browserStatus, install, browserHelp.el);
+  layout.append(browser.el);
+  ctx.interval(() => {
+    if (browserState?.status !== "installing" || polling) return;
+    polling = true;
+    void ctx.invoke("browserState").then(showBrowser).catch(browserError).finally(() => {
+      polling = false;
+    });
+  }, 1e3);
+  void ctx.invoke("browserState").then(showBrowser).catch((error) => {
+    install.disabled = false;
+    browserError(error);
+  });
   const anchor = (text, href) => {
     const link = ui.h("a", null, text);
     link.href = href;

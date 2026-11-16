@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2 - Unreleased
+
+- Add a Headless Shell installation button, status and download log to the configuration panel. Both the panel and `install:browser` install only Chromium Headless Shell and its required helpers.
+
 ## 0.4.1 - 2026-11-13
 
 - Save the Microlink API key directly in the Surfing panel. The compact password field clears after saving, and leaving it empty preserves the existing key.

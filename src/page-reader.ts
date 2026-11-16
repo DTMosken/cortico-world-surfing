@@ -125,7 +125,7 @@ export class Renderer {
       } catch {
         proxy.close();
         if (this.proxy === proxy) { this.proxy = undefined; this.browser = undefined; }
-        throw new ReadError('browser_unavailable', '动态网页读取需要 Chromium；在扩展目录执行 pnpm install:browser 后重试。');
+        throw new ReadError('browser_unavailable', '动态网页读取需要 Chromium Headless Shell；在网上冲浪配置页安装，或在扩展目录执行 pnpm install:browser 后重试。');
       }
     })();
     return this.browser;
