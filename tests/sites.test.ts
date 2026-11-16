@@ -51,6 +51,7 @@ class FixtureClient extends PublicClient {
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(limits.requestTimeoutMs), ...(parent ? [parent] : [])]);
     return { signal, downloadedBytes: 0, close: () => controller.abort(),
+      connect: () => this.fixture.connect(), accountBytes: (bytes: number) => this.fixture.accountBytes(bytes),
       get: (url: string, options?: GetOptions) => waitWithSignal(this.fixture.get(url, options), signal),
       postJson: (url: string, payload: unknown, allowHost: (hostname: string) => boolean) => waitWithSignal(this.fixture.postJson(url, payload, allowHost), signal) };
   }

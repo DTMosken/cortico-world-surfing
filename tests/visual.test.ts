@@ -3,6 +3,7 @@ import { SURFING_DEFAULTS } from '../src/config.ts';
 import { PageReader, type PageReadOptions } from '../src/page-reader.ts';
 import { SnapshotCache } from '../src/snapshots.ts';
 import { png, pdfFixture, visualOperation } from './visual-fixture.ts';
+import { fixtureRenderer } from './browser-fixture.ts';
 
 const url = 'https://example.org/document';
 const options: PageReadOptions = { mode: 'visual', page: 1, maxImageDimension: 800 };
@@ -29,11 +30,11 @@ test('图片直链按文件内容识别，缓存回执保留原图且按字节�
 });
 
 test('网页截图加载图片，按屏读取得到不同画面', async () => {
-  const reader = new PageReader();
   const operation = visualOperation({
     [url]: { type: 'text/html', body: '<style>body{margin:0}section{height:600px}img{width:200px;height:200px}</style><section style="background:red"><img src="/picture"></section><section style="background:blue"></section>' },
     'https://example.org/picture': { type: 'image/png', body: png },
   });
+  const reader = new PageReader(fixtureRenderer(operation));
   try {
     const first = await reader.read(url, operation, 100000, options);
     const second = await reader.read(url, operation, 100000, { ...options, page: 2 });
@@ -47,8 +48,8 @@ test('网页截图加载图片，按屏读取得到不同画面', async () => {
 });
 
 test('Canvas 无正文时 auto 返回画面，text 不返回图片', async () => {
-  const reader = new PageReader();
   const operation = visualOperation({ [url]: { type: 'text/html', body: '<canvas></canvas><script>const c=document.querySelector("canvas").getContext("2d");c.fillStyle="green";c.fillRect(0,0,300,150)</script>' } });
+  const reader = new PageReader(fixtureRenderer(operation));
   try {
     const result = await reader.read(url, operation, 100000, { ...options, mode: 'auto' });
     expect(result.scope.extraction).toBe('screenshot');

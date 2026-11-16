@@ -1,4 +1,4 @@
-<!-- Owner: package.json, src/definition.ts, src/world.ts, src/ENV_PROMPT.md, src/network.ts, src/bili.ts, src/sites.ts, src/microlink.ts, src/browser-install.ts, src/page-reader.ts, src/pdf-reader.ts, src/snapshots.ts, src/webui/client.ts, scripts/install-browser.mjs -->
+<!-- Owner: package.json, src/definition.ts, src/world.ts, src/ENV_PROMPT.md, src/network.ts, src/bili.ts, src/sites.ts, src/microlink.ts, src/browser-install.ts, src/browser-proxy.ts, src/page-reader.ts, src/pdf-reader.ts, src/snapshots.ts, src/webui/client.ts, scripts/install-browser.mjs -->
 # 网上冲浪
 
 让 Cortico 阅读公开网页、B站视频简介、字幕和评论，在 B站、贴吧和百科中查找材料，查询字母或数字缩写的候选释义，并根据读到的内容回答问题。发送链接或BV号即可使用，B站读取均使用匿名请求。
@@ -30,7 +30,7 @@
 
 本机 Chromium 不可用时，扩展将目标网页 URL 发送给 Microlink，由其渲染后返回 HTML；正文、编号链接和章节锚点仍由本扩展提取。静态读取、Chromium 和 Microlink 共用单次读取超时及下载上限。Chromium 已启动后的网页错误、超时或取消不触发 Microlink。
 
-Chromium 等待网页请求空闲后提取正文或截图，等待时间计入单次读取超时。连接时会在已核验的 DNS 地址中尝试可用地址。
+Chromium 使用原生 HTTPS 和 HTTP/2 加载网页资源，匿名 Cookie 仅保留在本次读取中。每次读取使用独立的本地连接代理，在已核验的 DNS 地址中尝试可用地址；下载量按解压后的字节数计入上限。网页请求空闲后提取正文或截图，等待时间计入单次读取超时。默认超时为 60 秒；已有配置保留原值，可在配置页调整「单次读取超时」。
 
 ## Microlink（可选）
 

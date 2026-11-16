@@ -6,6 +6,8 @@
 - Read image URLs and PDF pages as image attachments. Add `auto`, `text` and `visual` modes and page selection to `surfing_read_page`; automatic webpage reading falls back to a screenshot when local rendering yields no usable body. PDF.js renders PDF pages in the installed browser. Cache accounting includes images and PDF originals.
 - Wait for dynamic webpage requests within the configured reading timeout before extraction or screenshots. Keep browser initialization scripts executable under TSX.
 - Connect using the validated DNS address list so an unreachable first address does not prevent trying the others.
+- Load rendered webpage resources through Chromium's native HTTPS and HTTP/2 connections. A per-read proxy pins DNS results; cookies stay in the anonymous reading context, and decoded response bytes count toward the shared download limit.
+- Raise the default reading timeout to 60 seconds to cover dynamic page resources and extraction. Existing configured values are preserved.
 
 ## 0.4.1 - 2026-11-13
 

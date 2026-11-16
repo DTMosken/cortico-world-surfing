@@ -34,6 +34,8 @@ export class PlatformFixture implements ReadOperation {
   commentsJson?: unknown;
   commentBody = '评论原文。';
   close() {}
+  accountBytes(bytes: number) { this.downloadedBytes += bytes; }
+  async connect(): Promise<never> { throw new Error('fixture network offline'); }
   async postJson(_url: string, _payload: unknown, _allowHost: (hostname: string) => boolean): Promise<PublicResponse> { throw new Error('fixture network offline'); }
   async get(url: string, options: GetOptions = {}) {
     this.requests++;

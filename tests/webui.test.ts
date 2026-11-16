@@ -131,7 +131,7 @@ test('数值按显示单位编辑，按存储单位校验并写回', () => withP
   const control = (label: string) => [...root.querySelectorAll('input')].find(input => input.labels?.[0]?.textContent === label)!;
   const edit = (field: HTMLInputElement, value: string) => { field.value = value; field.dispatchEvent(new window.Event('change')); };
   const timeout = control('单次读取超时（秒）');
-  expect(timeout.value).toBe('20');
+  expect(timeout.value).toBe(String(SURFING_DEFAULTS.network.requestTimeoutMs / 1000));
   edit(timeout, '30');
   await vi.waitFor(() => expect(root.textContent).toContain('已保存：单次读取超时'));
   expect(cfg.network.requestTimeoutMs).toBe(30000);

@@ -6,6 +6,7 @@ import type { Material } from './snapshots.ts';
 import { MicrolinkRenderer } from './microlink.ts';
 import { renderPdf } from './pdf-reader.ts';
 import { SURFING_DEFAULTS } from './config.ts';
+import { createBrowserProxy } from './browser-proxy.ts';
 
 export interface PageReadOptions { mode: 'auto' | 'text' | 'visual'; page: number; maxImageDimension: number }
 const defaultOptions: PageReadOptions = { mode: 'auto', page: 1, maxImageDimension: SURFING_DEFAULTS.reading.maxImageDimension };
@@ -157,7 +158,7 @@ function screenshotMaterial(input: string, rendered: RenderedPage): Material {
       fallbackText: `网页第 ${image.page}/${image.pages} 屏，纵向位置 ${image.y} 像素；来源 ${rendered.url}` } };
 }
 
-/** Chromium receives fulfilled responses only; its direct proxy rejects every connection. */
+/** Webpages use a per-read proxy; PDF contexts have no network access. */
 export class Renderer {
   private browser?: Promise<Browser>;
   private proxy?: Server;
@@ -173,7 +174,7 @@ export class Renderer {
       try {
         return await this.launchBrowser({ headless: true, timeout: 10000,
           proxy: { server: `http://127.0.0.1:${port}`, bypass: '<-loopback>' },
-          args: ['--host-resolver-rules=MAP * ~NOTFOUND', '--disable-background-networking', '--disable-component-update',
+          args: ['--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1', '--disable-background-networking', '--disable-component-update',
             '--disable-sync', '--disable-extensions', '--disable-default-apps', '--disable-features=DnsOverHttps,WebTransport',
             '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],
         });
@@ -186,14 +187,15 @@ export class Renderer {
     return this.browser;
   }
 
-  private async withContext<T>(operation: ReadOperation, run: (context: BrowserContext) => Promise<T>): Promise<T> {
+  private async withContext<T>(operation: ReadOperation, run: (context: BrowserContext) => Promise<T>, proxy?: string): Promise<T> {
     let context: BrowserContext | undefined;
     const abort = () => { void context?.close().catch(() => {}); };
     try {
       operation.signal.throwIfAborted();
       const browser = await waitWithSignal(this.launch(), operation.signal);
       operation.signal.throwIfAborted();
-      const opening = browser.newContext({ acceptDownloads: false, serviceWorkers: 'block', storageState: undefined });
+      const opening = browser.newContext({ acceptDownloads: false, serviceWorkers: 'block', storageState: undefined,
+        ...(proxy ? { proxy: { server: proxy, bypass: '<-loopback>' } } : {}) });
       try { context = await waitWithSignal(opening, operation.signal); }
       catch (error) { void opening.then(value => value.close()).catch(() => {}); throw error; }
       operation.signal.addEventListener('abort', abort, { once: true });
@@ -216,7 +218,8 @@ export class Renderer {
     if (document.status!==200) throw new ReadError('access_denied','网页未允许本次公开渲染。');
     const target = validatePublicUrl(document.url);
     if (!target.hash) target.hash = original.hash;
-    return this.withContext(operation, async context => {
+    const proxy = await createBrowserProxy(operation);
+    try { return await this.withContext(operation, async context => {
     let navigationError: ReadError | undefined;
     let initialNavigation = false;
     const entry = new URL(target); entry.hash = '';
@@ -239,23 +242,26 @@ export class Renderer {
           await route.abort().catch(() => {}); return;
         }
         try {
-          let response: PublicResponse;
+          validatePublicUrl(request.url());
           if (request.resourceType()==='document') {
             const first = !initialNavigation && request.frame().parentFrame()===null && request.url()===entry.href;
-            if (!first)
+            if (!first && !(request.redirectedFrom() && request.frame().parentFrame()===null))
               throw new ReadError('access_denied','动态读取仅允许入口页面和 HTTP 重定向；需要其他页面时单独读取其链接。');
-            initialNavigation = true; response = document;
-          } else response = await operation.get(request.url(), { headers: request.headers() });
-          const headers = { ...response.headers };
-          delete headers.connection;
-          delete headers['keep-alive'];
-          await route.fulfill({ status: response.status, headers, body: response.body });
+            initialNavigation = true;
+          }
+          await route.fallback();
         } catch (error) {
           if (request.isNavigationRequest() && request.frame().parentFrame() === null) navigationError = asReadError(error);
           await route.abort().catch(() => {});
         }
       });
       const page = await context.newPage();
+      const network = await context.newCDPSession(page);
+      await network.send('Network.enable');
+      network.on('Network.dataReceived', event => {
+        try { operation.accountBytes(event.dataLength); }
+        catch (error) { navigationError = asReadError(error); void context.close().catch(() => {}); }
+      });
       if (capture) await page.setViewportSize({ width: options.maxImageDimension, height: Math.round(options.maxImageDimension * 0.75) });
       await page.goto(target.href, { waitUntil: 'domcontentloaded', timeout: 0 });
       await page.waitForLoadState('networkidle', { timeout: 0 });
@@ -281,7 +287,8 @@ export class Renderer {
       if (operation.signal.aborted) throw asReadError(operation.signal.reason);
       throw navigationError ?? asReadError(error);
     }
-    });
+    }, proxy.server); }
+    finally { await proxy.close(); }
   }
 
   async stop(): Promise<void> {

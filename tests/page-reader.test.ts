@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { chromium } from 'playwright';
 import { expect, test } from 'vitest';
 import { PageReader, Renderer } from '../src/page-reader.ts';
-import { fixtureOperation } from './browser-fixture.ts';
+import { fixtureOperation, fixtureRenderer } from './browser-fixture.ts';
 
 test('Worker 解析静态正文并定位章节', async () => {
   const reader = new PageReader();
@@ -26,7 +26,7 @@ test('空公开文本报告未取得正文，不能误报返回预算不足', as
 
 test.each(['','<p>Loading...</p>'])('空壳或短占位网页经浏览器后备取得正文 %s', async placeholder => {
   const operation = fixtureOperation('<main>'+placeholder+'<p id="text"></p></main><script>fetch("/data").then(r=>r.json()).then(d=>document.querySelector("#text").textContent=d.text)</script>');
-  const reader = new PageReader();
+  const reader = new PageReader(fixtureRenderer(operation));
   try {
     const result = await reader.read('https://example.org/article',operation,8*1024*1024);
     expect(result.scope.extraction).toBe('rendered-html');
@@ -41,7 +41,7 @@ test('异步正文加载超过 1.5 秒时仍等待完成再提取', async () => 
     if (new URL(url).pathname === '/data') await new Promise(resolve => setTimeout(resolve, 2200));
     return get(url, options);
   };
-  const reader = new PageReader();
+  const reader = new PageReader(fixtureRenderer(operation));
   try {
     const result = await reader.read('https://example.org/article', operation, 8*1024*1024);
     expect(result.scope.extraction).toBe('rendered-html');
@@ -87,7 +87,7 @@ test('真实浏览器读取动态正文并拦截内网 fetch、iframe、WebSocke
   fetch('/post',{method:'POST',body:'data'}).catch(()=>{});
   try { new WebSocket('ws://127.0.0.1:${port}/socket'); } catch {}
   </script>`;
-  const renderer = new Renderer(); const operation = fixtureOperation(html);
+  const operation = fixtureOperation(html); const renderer = fixtureRenderer(operation);
   try {
     const result = await renderer.render('https://example.org/article',operation,8*1024*1024);
     expect(result.html).toContain('动态正文已经加载。 RTC=undefined');
@@ -96,16 +96,16 @@ test('真实浏览器读取动态正文并拦截内网 fetch、iframe、WebSocke
 });
 
 test('每次渲染使用新的匿名上下文', async () => {
-  const renderer = new Renderer();
   const operation = fixtureOperation('<main><p id="text"></p></main><script>document.querySelector("#text").textContent="before="+localStorage.getItem("value");localStorage.setItem("value","saved")</script>');
+  const renderer = fixtureRenderer(operation);
   try {
     for(let i=0;i<2;i++) expect((await renderer.render('https://example.org/article',operation,8*1024*1024)).html).toContain('before=null');
   } finally {operation.close();await renderer.stop();}
 });
 
 test('GET 表单的 submit、requestSubmit 与按钮点击都不会发送请求', async () => {
-  const renderer = new Renderer();
   const operation = fixtureOperation('<main><p>正文。</p></main><iframe name="target"></iframe><form method="GET" target="target" action="/submit"><input name="field" value="payload"><button id="button">submit</button></form><script>const form=document.querySelector("form");form.submit();form.requestSubmit();document.querySelector("#button").click()</script>');
+  const renderer = fixtureRenderer(operation);
   try {
     await renderer.render('https://example.org/article',operation,8*1024*1024);
     expect(operation.requests.some(path=>path.startsWith('/submit'))).toBe(false);
@@ -113,8 +113,8 @@ test('GET 表单的 submit、requestSubmit 与按钮点击都不会发送请求'
 });
 
 test('GET 表单经过 window 事件截断或 Shadow DOM 也不会发送请求', async () => {
-  const renderer = new Renderer();
   const operation = fixtureOperation('<main><p>正文。</p></main><iframe name="target"></iframe><form method="GET" target="target" action="/submit"><input name="field" value="payload"><button id="button">submit</button></form><div id="host"></div><script>window.addEventListener("submit",event=>event.stopPropagation(),true);document.querySelector("#button").click();const shadow=document.querySelector("#host").attachShadow({mode:"closed"});shadow.innerHTML="<form method=GET target=target action=/submit><input name=field value=shadow><button>submit</button></form>";shadow.querySelector("button").click()</script>');
+  const renderer = fixtureRenderer(operation);
   try {
     await renderer.render('https://example.org/article',operation,8*1024*1024);
     expect(operation.requests.some(path=>path.startsWith('/submit'))).toBe(false);
@@ -122,7 +122,7 @@ test('GET 表单经过 window 事件截断或 Shadow DOM 也不会发送请求',
 });
 
 test('入口页面的 HTTP 重定向仍可读取', async () => {
-  const renderer = new Renderer(); const operation = fixtureOperation('<main><p>重定向后正文。</p></main>');
+  const operation = fixtureOperation('<main><p>重定向后正文。</p></main>'); const renderer = fixtureRenderer(operation);
   const get = operation.get.bind(operation);
   operation.get = async(input,options)=>new URL(input).pathname==='/start'
     ? {...await get('https://example.org/article',options),url:'https://example.org/article'} : get(input,options);
@@ -146,7 +146,7 @@ test('等待慢浏览器启动时也响应整次操作的取消', async () => {
 
 test('动态生成的正文链接沿用最终页面地址解析，返回可打开的编号', async () => {
   const operation = fixtureOperation('<main><p id="text"></p></main><script>const root=document.querySelector("#text");root.textContent="动态正文。";const link=document.createElement("a");link.href="next";link.textContent="后续说明";root.append(link)</script>');
-  const reader = new PageReader();
+  const reader = new PageReader(fixtureRenderer(operation));
   try {
     const material = await reader.read('https://example.org/docs/start', operation, 8*1024*1024);
     expect(material.scope.extraction).toBe('rendered-html');

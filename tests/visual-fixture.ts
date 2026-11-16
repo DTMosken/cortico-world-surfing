@@ -25,8 +25,11 @@ export function pdfFixture(): Buffer {
 
 export function visualOperation(responses: Record<string, { body: Buffer | string; type: string }>, signal = new AbortController().signal) {
   const requests: string[] = [];
+  let downloadedBytes = 0;
   const operation: ReadOperation & { requests: string[] } = {
-    signal, requests, downloadedBytes: 0, close() {},
+    signal, requests, get downloadedBytes() { return downloadedBytes; }, close() {},
+    accountBytes(bytes) { downloadedBytes += bytes; },
+    async connect(): Promise<never> { throw new Error('Unexpected fixture connection'); },
     async postJson() { throw new Error('No POST in visual fixtures'); },
     async get(url): Promise<PublicResponse> {
       requests.push(url);
