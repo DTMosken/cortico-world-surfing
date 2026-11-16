@@ -20,13 +20,13 @@
 
 1. 在 Cortico 扩展管理页输入 `cortico-world-surfing` 安装 npm 包；使用本地源码时选择本项目目录。
 2. 重启 Cortico 进程，启用“网上冲浪”。
-3. 在网上冲浪的「配置」页找到「本机网页渲染」，点击「安装 Headless Shell」。下载在 Cortico 所在机器后台进行，关闭页面后继续；安装失败可查看日志并重试。安装完成后，下次读取生效。也可在扩展目录安装：
+3. 在网上冲浪的「配置」页找到「本机网页渲染」，点击「安装 Headless Shell」。下载在 Cortico 所在机器后台进行，关闭页面后继续；安装失败可重试。安装完成后，下次读取生效。也可在扩展目录安装：
 
    ```powershell
    corepack pnpm install:browser
    ```
 
-安装入口仅下载 Chromium Headless Shell 及 Playwright 所需辅助组件，浏览器不随扩展包发布。Linux 缺少系统库时，按安装日志提示安装。
+安装入口仅下载 Chromium Headless Shell 及 Playwright 所需辅助组件，浏览器不随扩展包发布。Linux 缺少系统库时，运行上述命令查看缺失项。
 
 本机 Chromium 不可用时，扩展将目标网页 URL 发送给 Microlink，由其渲染后返回 HTML；正文、编号链接和章节锚点仍由本扩展提取。静态读取、Chromium 和 Microlink 共用单次读取超时及下载上限。Chromium 已启动后的网页错误、超时或取消不触发 Microlink。
 

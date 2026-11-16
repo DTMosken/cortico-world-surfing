@@ -2,7 +2,7 @@
 
 ## 0.4.2 - Unreleased
 
-- Add a Headless Shell installation button, status and download log to the configuration panel. Both the panel and `install:browser` install only Chromium Headless Shell and its required helpers.
+- Add a Headless Shell installation button and status to the configuration panel. Both the panel and `install:browser` install only Chromium Headless Shell and its required helpers.
 - Read image URLs and PDF pages as image attachments. Add `auto`, `text` and `visual` modes and page selection to `surfing_read_page`; automatic webpage reading falls back to a screenshot when local rendering yields no usable body. PDF.js renders PDF pages in the installed browser. Cache accounting includes images and PDF originals.
 
 ## 0.4.1 - 2026-11-13

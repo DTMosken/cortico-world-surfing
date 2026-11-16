@@ -1126,10 +1126,6 @@ async function mount(ctx) {
   });
   const browserStatus = ui.msgline("\u6B63\u5728\u68C0\u67E5\u6D4F\u89C8\u5668\u2026");
   browserStatus.setAttribute("role", "status");
-  const browserLog = ui.h("pre", "mono");
-  browserLog.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto";
-  const browserHelp = ui.foldSheet("surfing-browser-log", { title: "\u5B89\u88C5\u8BE6\u60C5", defaultOpen: false });
-  browserHelp.body.append(browserLog, ui.h("p", "muted", "\u4E5F\u53EF\u5728\u6269\u5C55\u76EE\u5F55\u8FD0\u884C pnpm install:browser\u3002Linux \u7F3A\u5C11\u7CFB\u7EDF\u5E93\u65F6\uFF0C\u6309\u65E5\u5FD7\u63D0\u793A\u5B89\u88C5\u3002"));
   let browserState;
   let polling = false;
   const showBrowser = (next) => {
@@ -1138,7 +1134,6 @@ async function mount(ctx) {
     browserStatus.classList.toggle("bad", next.status === "failed");
     install.disabled = next.status === "installing" || next.status === "ready";
     install.textContent = next.status === "failed" ? "\u91CD\u8BD5\u5B89\u88C5" : "\u5B89\u88C5 Headless Shell";
-    browserLog.textContent = next.log;
   };
   const browserError = (error) => {
     browserStatus.textContent = errorText(error);
@@ -1152,7 +1147,7 @@ async function mount(ctx) {
     });
   } });
   install.disabled = true;
-  browser.body.append(browserStatus, install, browserHelp.el);
+  browser.body.append(browserStatus, install);
   layout.append(browser.el);
   ctx.interval(() => {
     if (browserState?.status !== "installing" || polling) return;

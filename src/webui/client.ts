@@ -121,10 +121,6 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     desc: '下载 Chromium Headless Shell 到 Cortico 所在机器。安装完成后，下次读取生效。' });
   const browserStatus = ui.msgline('正在检查浏览器…');
   browserStatus.setAttribute('role', 'status');
-  const browserLog = ui.h('pre', 'mono');
-  browserLog.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:240px;overflow:auto';
-  const browserHelp = ui.foldSheet('surfing-browser-log', { title: '安装详情', defaultOpen: false });
-  browserHelp.body.append(browserLog, ui.h('p', 'muted', '也可在扩展目录运行 pnpm install:browser。Linux 缺少系统库时，按日志提示安装。'));
   let browserState: BrowserInstallState | undefined;
   let polling = false;
   const showBrowser = (next: BrowserInstallState): void => {
@@ -133,7 +129,6 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     browserStatus.classList.toggle('bad', next.status === 'failed');
     install.disabled = next.status === 'installing' || next.status === 'ready';
     install.textContent = next.status === 'failed' ? '重试安装' : '安装 Headless Shell';
-    browserLog.textContent = next.log;
   };
   const browserError = (error: unknown): void => {
     browserStatus.textContent = errorText(error); browserStatus.classList.add('bad');
@@ -145,7 +140,7 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     });
   } });
   install.disabled = true;
-  browser.body.append(browserStatus, install, browserHelp.el);
+  browser.body.append(browserStatus, install);
   layout.append(browser.el);
   ctx.interval(() => {
     if (browserState?.status !== 'installing' || polling) return;

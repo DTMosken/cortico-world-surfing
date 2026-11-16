@@ -63,7 +63,7 @@ async function withPanel(run: (panel: {
 
 test('配置面板合并全部设置，Microlink 步骤写明 API Key 的控制台路径', () => withPanel(async ({ root }) => {
   const sections = [...root.querySelectorAll('h3')].map(element => element.textContent);
-  expect(sections).toEqual(['阅读与字幕', '站点搜索', '代理', '高级设置', '获取与缓存限制', '本机网页渲染', '安装详情', 'Microlink 远程渲染', '如何取得 API Key']);
+  expect(sections).toEqual(['阅读与字幕', '站点搜索', '代理', '高级设置', '获取与缓存限制', '本机网页渲染', 'Microlink 远程渲染', '如何取得 API Key']);
   expect(root.querySelectorAll('input[type=number]')).toHaveLength(11);
   expect([...root.querySelectorAll('[aria-labelledby="world:surfing:search:sources"] button')].map(button => [button.textContent, button.getAttribute('aria-pressed')]))
     .toEqual(['B站', '贴吧', '萌娘百科', '百度百科', '缩写释义'].map(source => [source, 'true']));
@@ -199,7 +199,6 @@ test('配置页安装后显示可用状态，已安装时禁用按钮', async ()
       button.click();
       expect(button.disabled).toBe(true);
       await vi.waitFor(() => expect(root.textContent).toContain('已安装 · 可用'), { timeout: 5000 });
-      expect(root.querySelector('pre')?.textContent).toContain('Download complete');
       expect(button.disabled).toBe(true);
     }, installer);
   } finally { rmSync(dir, { recursive: true, force: true }); }
