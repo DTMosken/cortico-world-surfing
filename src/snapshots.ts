@@ -1,6 +1,7 @@
 /** Cursors authenticate an immutable source snapshot and a position, never a page number. */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { SurfingConfigSection } from './config.ts';
+import type { BlobInput } from 'cortico/core/types.ts';
 import { ReadError } from './network.ts';
 
 export type RecordValue = Record<string, string | number | boolean>;
@@ -21,12 +22,15 @@ export interface Material {
   more?: TiebaMore;
   sentenceTimes?: Array<{ from: number; to: number }>;
   metadataTruncated?: string[];
+  image?: { bytes: Uint8Array; mime: string; name: string; fallbackText: string };
+  pdf?: Uint8Array;
 }
 interface Snapshot { material: Material; size: number; expiresAtMs: number; nextBatchCursor?: string }
 interface Position { id: string; unit: number; offset: number }
 export interface PageResult {
   text: string; hasMore: boolean; sourceTruncated: boolean; estimatedTokens: number;
   nextCursor?: string; failed?: true;
+  blobs?: BlobInput[];
 }
 
 /** Adapted from Cortico src/protocol/open-responses/tokens.ts, MIT, Phantivia. */
@@ -103,8 +107,10 @@ export class SnapshotCache {
       return [key,limited];
     }));
     if (metadataTruncated.length) material.metadataTruncated = metadataTruncated;
-    const size = Buffer.byteLength(JSON.stringify(material));
-    if (size > config.cache.maxBytes) throw new ReadError('source_limit', '单份材料超出文本缓存上限，无法保存续读快照。');
+    const { image, pdf, ...textMaterial } = material;
+    const size = Buffer.byteLength(JSON.stringify({ ...textMaterial, ...(image ? { image: { ...image, bytes: undefined } } : {}) }))
+      + (image?.bytes.byteLength ?? 0) + (pdf?.byteLength ?? 0);
+    if (size > config.cache.maxBytes) throw new ReadError('source_limit', '单份材料超出缓存上限，无法保存续读快照。');
     this.trim(config.cache.maxBytes - size);
     const id = randomBytes(12).toString('hex');
     this.snapshots.set(id, {
@@ -137,6 +143,11 @@ export class SnapshotCache {
       ? `根评论 rpid: ${scope.root}；楼中楼第${scope.page}页`
       : `${scope.sort === 'time' ? '最新' : '热门'}评论；含楼中楼预览`}`);
     if (scope.kind === 'web-section') header.push(`章节：${line(scope.anchor)}`);
+    if (scope.extraction === 'screenshot') header.push(`网页截图：第 ${scope.page}/${scope.pages} 屏；纵向位置 ${scope.y} 像素；每次指定 page 会重新加载网页。`);
+    if (scope.kind === 'pdf') header.push(`PDF：第 ${scope.page}/${scope.pages} 页。`);
+    if (scope.extraction === 'screenshot' || scope.kind === 'pdf')
+      header.push('查看其他页：沿用 pageRef，传 page 页码；文字续读仍使用 cursor。');
+    if (material.image) header.push('本次附带一张图片；供应商需启用图像输入。');
     const notices: string[] = [];
     if (material.metadataTruncated?.some(name => ['title', 'scope.part', 'scope.author', 'scope.query'].includes(name)))
       notices.push('标题信息已截短。');
@@ -211,6 +222,7 @@ export class SnapshotCache {
     const text = finish();
     if (estimateTokens(text) > cap) throw new ReadError('source_limit', '返回信息超过配置上限。');
     return { text, hasMore: hasMore(), ...(hasMore() ? { nextCursor: this.encode(current) } : {}),
+      ...(material.image && !failure ? { blobs: [material.image] } : {}),
       sourceTruncated: material.sourceTruncated ?? false, estimatedTokens: estimateTokens(text), ...(failure ? { failed: true } : {}) };
   }
 
@@ -219,6 +231,12 @@ export class SnapshotCache {
     if (cursor && this.decode(cursor).id !== id)
       throw new ReadError('cursor_mismatch', '游标与网页引用不匹配，请使用该页回执中的 pageRef。');
     return { key: snapshot.material.key, cursor: cursor ?? pageRef };
+  }
+
+  source(pageRef: string, config: SurfingConfigSection): { url: string; pdf?: Uint8Array } {
+    const { material } = this.pageSnapshot(pageRef, config).snapshot;
+    if (material.kind !== 'page') throw new ReadError('invalid_input', '搜索回执需用 linkId 打开具体链接后再选择阅读模式。');
+    return { url: material.source, pdf: material.pdf };
   }
 
   link(pageRef: string, linkId: string, config: SurfingConfigSection): string | { more: TiebaMore; key: string; cursor: string } {

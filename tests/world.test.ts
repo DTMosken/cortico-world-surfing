@@ -21,6 +21,7 @@ import { SURFING_CONFIG_GROUPS, SURFING_DEFAULTS, type SurfingConfigSection } fr
 import { estimateTokens } from '../src/snapshots.ts';
 import { PublicClient, validatePublicUrl, waitWithSignal, type NetworkLimits } from '../src/network.ts';
 import { PlatformFixture, receipt } from './platform-fixture.ts';
+import { pdfFixture, png, visualOperation } from './visual-fixture.ts';
 
 class FixtureClient extends PublicClient {
   constructor(readonly fixture: PlatformFixture) { super(); }
@@ -39,6 +40,36 @@ function context(): WorldContext<SurfingConfigSection> {
     botDir: '.', packageDir: '.', dataDir: '.', repoRoot: '.', secret() { throw new Error('anonymous world must not read credentials'); },
     storeSecret() { throw new Error('credentials must not be stored'); }, persist() {}, async restart() {} };
 }
+
+test('视觉工具回执携带图片，PDF pageRef 翻页复用原件且不改变旧回执', async () => {
+  const url = 'https://example.org/document.pdf';
+  const operation = visualOperation({ [url]: { type: 'application/pdf', body: pdfFixture() },
+    'https://example.org/image.png': { type: 'image/png', body: png } });
+  class VisualClient extends PublicClient { override operation() { return operation; } }
+  const world = new SurfingWorld(context(), new VisualClient());
+  const tool = world.tools()[0];
+  const call = { role: 'test', log: {} as never };
+  const invoke = async (args: Record<string, unknown>) => {
+    const out = await tool.handler(args, call);
+    if (typeof out === 'string') throw new Error('Expected image outcome');
+    expect(out.failed).toBeUndefined();
+    return out;
+  };
+  try {
+    const first = await invoke({ url });
+    const ref = receipt(first.text).pageRef!;
+    expect(first.blobs?.[0]).toMatchObject({ mime: 'image/png' });
+    const second = await invoke({ pageRef: ref, page: 2 });
+    expect(second.text).toContain('第 2/2 页');
+    expect(second.blobs).toHaveLength(1);
+    expect(operation.requests).toEqual([url]);
+    expect((await invoke({ pageRef: ref })).blobs).toEqual(first.blobs);
+    const image = await invoke({ url: 'https://example.org/image.png' });
+    expect(Buffer.from((image.blobs![0] as { bytes: Uint8Array }).bytes)).toEqual(png);
+    const invalid = await tool.handler({ pageRef: ref, cursor: ref, page: 2 }, call);
+    expect(invalid).toMatchObject({ failed: true });
+  } finally { await world.stop(); }
+});
 
 test('独立 World 无需凭证即可提供工具和可调配置', () => {
   const world = new SurfingWorld(context());

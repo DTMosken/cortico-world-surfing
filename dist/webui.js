@@ -847,7 +847,7 @@ var PROXY_MODE_PATH = "worlds.surfing.network.proxyCompatibility";
 var PROXY_RANGES_PATH = "worlds.surfing.network.customProxyRanges";
 var SURFING_DEFAULTS = {
   enabled: false,
-  reading: { maxResponseEstimatedTokens: 3e3, maxSourceChars: 3e5 },
+  reading: { maxResponseEstimatedTokens: 3e3, maxSourceChars: 3e5, maxImageDimension: 1600 },
   bili: { subtitleGroupSec: 30, maxSubtitleRetries: 2, subtitleRetryDelayMs: 1e3 },
   network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 2e4, proxyCompatibility: false, customProxyRanges: "" },
   cache: { ttlMs: 9e5, maxBytes: 32 * 1024 * 1024 },
@@ -864,7 +864,16 @@ var SURFING_CONFIG_GROUP = {
       maximum: 32768,
       "x-suffix": "\u4F30\u7B97 token",
       "x-hot": true,
-      description: "\u5305\u542B\u6B63\u6587\u548C\u7EED\u8BFB\u4FE1\u606F\uFF1B\u4E0B\u6B21\u8C03\u7528\u751F\u6548\u3002\u8FDE\u7EED\u7EED\u8BFB\u4F1A\u7D2F\u79EF\u4E0A\u4E0B\u6587\u3002"
+      description: "\u5305\u542B\u6587\u5B57\u6B63\u6587\u548C\u7EED\u8BFB\u4FE1\u606F\uFF0C\u4E0D\u542B\u56FE\u50CF\u53CA Core \u9644\u4EF6\u8BF4\u660E\u7684 token\uFF1B\u4E0B\u6B21\u8C03\u7528\u751F\u6548\u3002\u8FDE\u7EED\u7EED\u8BFB\u4F1A\u7D2F\u79EF\u4E0A\u4E0B\u6587\u3002"
+    },
+    "worlds.surfing.reading.maxImageDimension": {
+      type: "integer",
+      title: "\u6E32\u67D3\u56FE\u7247\u6700\u957F\u8FB9",
+      minimum: 512,
+      maximum: 4096,
+      "x-suffix": "\u50CF\u7D20",
+      "x-hot": true,
+      description: "\u7528\u4E8E\u7F51\u9875\u622A\u56FE\u548C PDF \u9875\u9762\uFF1B\u6BCF\u6B21\u8FD4\u56DE\u4E00\u5F20\u56FE\u7247\u3002\u56FE\u7247\u76F4\u94FE\u4FDD\u7559\u539F\u56FE\u3002"
     },
     "worlds.surfing.bili.subtitleGroupSec": {
       type: "integer",
@@ -977,7 +986,7 @@ var SURFING_LIMITS_CONFIG_GROUP = {
     },
     "worlds.surfing.cache.maxBytes": {
       type: "integer",
-      title: "\u6587\u672C\u7F13\u5B58\u4E0A\u9650",
+      title: "\u6750\u6599\u7F13\u5B58\u4E0A\u9650",
       minimum: 8388608,
       maximum: 268435456,
       "x-scale": 1048576,

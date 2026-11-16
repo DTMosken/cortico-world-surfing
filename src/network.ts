@@ -18,7 +18,7 @@ export function asReadError(error: unknown): ReadError {
   if (error instanceof ReadError) return error;
   if (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))
     return new ReadError('timeout', '读取已取消或超时。');
-  return new ReadError('network_error', '读取失败，未取得可用文本。');
+  return new ReadError('network_error', '读取失败，未取得可用内容。');
 }
 
 export interface NetworkLimits { requestTimeoutMs: number; maxDownloadBytes: number; proxyCompatibility?: boolean; customProxyRanges?: string }
