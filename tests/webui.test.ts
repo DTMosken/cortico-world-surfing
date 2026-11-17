@@ -17,7 +17,7 @@ import { BrowserInstaller } from '../src/browser-install.ts';
 async function withPanel(run: (panel: {
   root: HTMLElement; world: SurfingWorld; cfg: SurfingConfigSection;
   invoke: WebUiPanelContext['invoke']; persisted: unknown[]; window: JSDOM['window']; failSaves: (failing: boolean) => void;
-}) => Promise<void>, browserInstaller = new BrowserInstaller(async () => { throw new Error('浏览器未安装'); })): Promise<void> {
+}) => Promise<void>, browserInstaller = new BrowserInstaller(async () => { throw new Error("Executable doesn't exist at fixture-cache/headless_shell"); })): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'surfing-webui-'));
   const dom = new JSDOM('<div id="root"></div>');
   const doc = dom.window.document;
@@ -185,21 +185,152 @@ test('保存 Microlink 密钥后清空输入框，状态只显示是否已配置
   expect(await invoke('state')).toMatchObject({ keySet: true });
 }));
 
-test('配置页安装后显示可用状态，已安装时禁用按钮', async () => {
+function installerScript(dir: string, body: string): string {
+  const script = join(dir, 'installer.cjs');
+  writeFileSync(script, `
+    const { existsSync, watch, writeFileSync } = require('node:fs');
+    const { join } = require('node:path');
+    const dir = process.argv[2];
+    const gate = name => new Promise(resolve => {
+      const check = () => {
+        if (existsSync(join(dir, name)) || existsSync(join(dir, 'release-all'))) {
+          watcher.close(); resolve();
+        }
+      };
+      const watcher = watch(dir, check);
+      check();
+    });
+    (async () => { ${body} })();
+  `);
+  return script;
+}
+
+test('配置页显示下载进度、安装和检查阶段，完成后隐藏进度并禁用按钮', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'surfing-panel-install-'));
   const ready = join(dir, 'ready');
-  const script = join(dir, 'installer.cjs');
-  writeFileSync(script, "console.log('Download complete'); require('node:fs').writeFileSync(process.argv[2], 'ready');");
-  const installer = new BrowserInstaller(async () => { if (!existsSync(ready)) throw new Error('浏览器未安装'); },
-    [process.execPath, script, ready]);
+  const script = installerScript(dir, `
+    console.log('Downloading Chromium Headless Shell (playwright chromium-headless-shell v1243) from https://fixture.invalid/browser.zip');
+    await gate('download');
+    console.log('|■■■■                                    |  40% of 123.4 MiB');
+    await gate('install');
+    console.log('|■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■■| 100% of 123.4 MiB');
+    await gate('complete');
+    console.log('Chromium Headless Shell downloaded to fixture-cache');
+    await gate('check');
+    writeFileSync(join(dir, 'ready'), 'ready');
+  `);
+  let finishProbe!: () => void;
+  const probing = new Promise<void>(resolve => { finishProbe = resolve; });
+  const installer = new BrowserInstaller(async () => {
+    if (!existsSync(ready)) throw new Error("Executable doesn't exist at fixture-cache/headless_shell");
+    await probing;
+  }, [process.execPath, script, dir]);
+  const advance = (name: string) => writeFileSync(join(dir, name), '');
   try {
     await withPanel(async ({ root }) => {
       const button = [...root.querySelectorAll('button')].find(button => button.textContent === '安装 Headless Shell')!;
+      const progress = root.querySelector('progress')!;
+      const progressRow = progress.parentElement!;
       await vi.waitFor(() => expect(button.disabled).toBe(false));
       button.click();
       expect(button.disabled).toBe(true);
+      await vi.waitFor(() => expect(progressRow.textContent).toBe('正在下载 Chromium Headless Shell'), { timeout: 3000 });
+      expect(progressRow.hidden).toBe(false);
+      expect(progress.hasAttribute('value')).toBe(false);
+      expect(progress.getAttribute('aria-label')).toBe('正在下载 Chromium Headless Shell');
+      expect(progressRow.parentElement!.contains(button)).toBe(true);
+
+      advance('download');
+      await vi.waitFor(() => expect(progress.value).toBe(40), { timeout: 3000 });
+      expect(progress.max).toBe(100);
+      expect(progressRow.textContent).toContain('40% · 123.4 MiB');
+
+      advance('install');
+      await vi.waitFor(() => expect(progressRow.textContent).toBe('正在安装 Chromium Headless Shell…'), { timeout: 3000 });
+      expect(progress.hasAttribute('value')).toBe(false);
+      advance('complete');
+      await vi.waitFor(() => expect(progressRow.textContent).toBe('正在完成安装…'), { timeout: 3000 });
+      advance('check');
+      await vi.waitFor(() => expect(progressRow.textContent).toBe('正在检查浏览器…'), { timeout: 3000 });
+      finishProbe();
       await vi.waitFor(() => expect(root.textContent).toContain('已安装 · 可用'), { timeout: 5000 });
       expect(button.disabled).toBe(true);
+      expect(progressRow.hidden).toBe(true);
+      expect(root.querySelector<HTMLElement>('[role=alert]')!.hidden).toBe(true);
+      expect(button.closest('.sheet')!.querySelector('details, pre')).toBeNull();
     }, installer);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    advance('release-all');
+    finishProbe();
+    await vi.waitFor(async () => expect((await installer.state()).status).not.toBe('installing'), { timeout: 5000 });
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 15000);
+
+test('配置页就地显示安装失败原因，重试清除错误且不把日志解析为 HTML', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'surfing-panel-retry-'));
+  const ready = join(dir, 'ready');
+  const reason = 'EACCES: <img src="fixture" onerror="alert(1)">';
+  const script = installerScript(dir, `
+    if (!existsSync(join(dir, 'attempted'))) {
+      writeFileSync(join(dir, 'attempted'), '');
+      console.error(${JSON.stringify(`Error: ${reason}`)});
+      process.exitCode = 1;
+      return;
+    }
+    console.log('Downloading Chromium Headless Shell from https://fixture.invalid/browser.zip');
+    await gate('finish');
+    writeFileSync(join(dir, 'ready'), 'ready');
+  `);
+  const installer = new BrowserInstaller(async () => {
+    if (!existsSync(ready)) throw new Error("Executable doesn't exist at fixture-cache/headless_shell");
+  }, [process.execPath, script, dir]);
+  try {
+    await withPanel(async ({ root }) => {
+      const button = [...root.querySelectorAll('button')].find(button => button.textContent === '安装 Headless Shell')!;
+      const failure = root.querySelector<HTMLElement>('[role=alert]')!;
+      const progress = root.querySelector('progress')!;
+      await vi.waitFor(() => expect(button.disabled).toBe(false));
+      button.click();
+      await vi.waitFor(() => expect(button.textContent).toBe('重试安装'), { timeout: 5000 });
+      expect(button.disabled).toBe(false);
+      expect(failure.hidden).toBe(false);
+      expect(failure.textContent).toBe(reason);
+      expect(failure.querySelector('img')).toBeNull();
+      expect(progress.parentElement!.hidden).toBe(true);
+      expect(button.closest('.sheet')!.querySelector('details, pre')).toBeNull();
+
+      button.click();
+      expect(button.disabled).toBe(true);
+      expect(failure.hidden).toBe(true);
+      await vi.waitFor(() => expect(progress.parentElement!.hidden).toBe(false), { timeout: 3000 });
+      expect(failure.textContent).toBe('');
+      writeFileSync(join(dir, 'finish'), '');
+      await vi.waitFor(() => expect(root.textContent).toContain('已安装 · 可用'), { timeout: 5000 });
+      expect(failure.hidden).toBe(true);
+      expect(progress.parentElement!.hidden).toBe(true);
+    }, installer);
+  } finally {
+    writeFileSync(join(dir, 'release-all'), '');
+    await vi.waitFor(async () => expect((await installer.state()).status).not.toBe('installing'), { timeout: 5000 });
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 10000);
+
+test.each([
+  ['Host system is missing dependencies to run browsers.\nMissing libraries: libfixture.so.1', 'libfixture.so.1', 'pnpm exec playwright install-deps chromium'],
+  ['Chromium sandboxing failed! No usable sandbox!', 'Chromium 沙箱无法启动。', '非 root'],
+])('浏览器无法启动时显示处理提示：%s', async (error, reason, hint) => {
+  const installer = new BrowserInstaller(async () => { throw new Error(error); });
+  await withPanel(async ({ root }) => {
+    const failure = root.querySelector<HTMLElement>('[role=alert]')!;
+    await vi.waitFor(() => expect(failure.hidden).toBe(false));
+    expect(failure.textContent).toContain(reason);
+    expect(failure.textContent).toContain(hint);
+    expect(failure.querySelector('small')!.style.whiteSpace).toBe('pre-wrap');
+    expect(failure.querySelector('small')!.textContent).toContain('\n');
+    expect(root.querySelector('progress')!.parentElement!.hidden).toBe(true);
+    const button = [...root.querySelectorAll('button')].find(button => button.textContent === '安装 Headless Shell')!;
+    expect(button.disabled).toBe(false);
+  }, installer);
 });

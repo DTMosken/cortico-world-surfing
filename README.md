@@ -26,7 +26,9 @@
    corepack pnpm install:browser
    ```
 
-安装入口仅下载 Chromium Headless Shell 及 Playwright 所需辅助组件，浏览器不随扩展包发布。Linux 缺少系统库时，运行上述命令查看缺失项。
+安装入口仅下载 Chromium Headless Shell 及 Playwright 所需辅助组件，浏览器不随扩展包发布。下载进度按当前组件分别显示，下载完成后检查浏览器是否可启动；失败时显示原因与处理提示。
+
+Linux 缺少系统库时，在扩展目录运行 `pnpm exec playwright install-deps chromium`，需要管理员权限，适用于 Playwright 支持的 Debian / Ubuntu。沙箱需要非 root 用户及用户命名空间支持；Docker 的 seccomp 配置见 [Playwright 容器说明](https://playwright.dev/docs/docker#crawling-and-scraping)。完成处理后重试安装。
 
 本机 Chromium 不可用时，扩展将目标网页 URL 发送给 Microlink，由其渲染后返回 HTML；正文、编号链接和章节锚点仍由本扩展提取。静态读取、Chromium 和 Microlink 共用单次读取超时及下载上限。Chromium 已启动后的网页错误、超时或取消不触发 Microlink。
 

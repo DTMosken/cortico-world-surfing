@@ -2,7 +2,7 @@
 
 ## 0.4.2 - Unreleased
 
-- Add a Headless Shell installation button and status to the configuration panel. Both the panel and `install:browser` install only Chromium Headless Shell and its required helpers.
+- Add a Headless Shell installation button, component download progress and failure messages to the configuration panel, with Linux dependency and sandbox setup guidance. Both the panel and `install:browser` install only Chromium Headless Shell and its required helpers.
 - Read image URLs and PDF pages as image attachments. Add `auto`, `text` and `visual` modes and page selection to `surfing_read_page`; automatic webpage reading falls back to a screenshot when local rendering yields no usable body. PDF.js renders PDF pages in the installed browser. Cache accounting includes images and PDF originals.
 - Wait for dynamic webpage requests within the configured reading timeout before extraction or screenshots. Keep browser initialization scripts executable under TSX.
 - Connect using the validated DNS address list so an unreachable first address does not prevent trying the others.
