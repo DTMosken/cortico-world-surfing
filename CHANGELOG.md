@@ -1,49 +1,49 @@
-# Changelog
+# 更新日志
 
-## 0.4.2 - Unreleased
+## 0.4.2 - 未发布
 
-- Add a Headless Shell installation button, component download progress and failure messages to the configuration panel, with Linux dependency and sandbox setup guidance. Both the panel and `install:browser` install only Chromium Headless Shell and its required helpers.
-- Read image URLs and PDF pages as image attachments. Add `auto`, `text` and `visual` modes and page selection to `surfing_read_page`; automatic webpage reading falls back to a screenshot when local rendering yields no usable body. PDF.js renders PDF pages in the installed browser. Cache accounting includes images and PDF originals.
-- Wait for dynamic webpage requests within the configured reading timeout before extraction or screenshots. Keep browser initialization scripts executable under TSX.
-- Connect using the validated DNS address list so an unreachable first address does not prevent trying the others.
-- Load rendered webpage resources through Chromium's native HTTPS and HTTP/2 connections. A per-read proxy pins DNS results; cookies stay in the anonymous reading context, and decoded response bytes count toward the shared download limit.
-- Raise the default reading timeout to 60 seconds to cover dynamic page resources and extraction. Existing configured values are preserved.
-- Enable Chromium sandboxing for webpage/PDF reading and installation checks. Enforce decoded download limits and WebSocket restrictions across dedicated, nested and shared Workers while preserving their GET reads. Each read owns its browser.
+- 配置页新增 Headless Shell 安装入口，按组件显示下载进度，并显示失败原因及 Linux 系统依赖、沙箱的处理方法。配置页和 `install:browser` 命令均只安装 Chromium Headless Shell 及其必需的辅助组件。
+- 支持图片直链和 PDF 视觉读取。`surfing_read_page` 新增 `auto`、`text`、`visual` 模式及页码选择；网页在自动模式下未取得可用正文时尝试截图。PDF 通过本机浏览器中的 PDF.js 按页渲染，图片和 PDF 原件计入缓存上限。
+- 动态网页在配置的读取超时内等待网络请求完成，再提取正文或截图；修复浏览器初始化脚本在 TSX 下无法执行的问题。
+- 连接时依次尝试已核验的 DNS 地址，避免首个地址不可达导致整次读取失败。
+- 网页资源改由 Chromium 原生 HTTPS 和 HTTP/2 连接加载，修复部分动态网页资源加载挂起的问题。每次读取的本地代理固定使用已核验的 DNS 地址，匿名 Cookie 仅保留在本次读取中，响应按解压后的字节数计入整次下载上限。
+- 默认单次读取超时调整为 60 秒，覆盖动态资源加载和正文提取；已有配置保留原值。
+- 网页、PDF 读取及安装后的启动检查均启用 Chromium 沙箱。每次读取使用独立浏览器；普通、嵌套及共享 Worker 均受解压后下载上限和 WebSocket 连接限制，保留正常计算与 GET 读取。
 
 ## 0.4.1 - 2026-11-13
 
-- Save the Microlink API key directly in the Surfing panel. The compact password field clears after saving, and leaving it empty preserves the existing key.
+- 支持直接在网上冲浪配置页保存 Microlink API Key。密钥输入框保存后清空，留空时保留已有密钥。
 
 ## 0.4.0 - 2026-11-06
 
-- Add `surfing_search_all`, which searches Bilibili, Tieba, Moegirlpedia and Baidu Baike in parallel and returns short results. Open numbered results and further Tieba results with `surfing_read_page`. The WebUI has a switch for each source and a per-source result limit.
-- Merge `surfing_read_bili_info` and `surfing_read_bili_comments` into `surfing_read_bili`. The old tool names are removed; pass `mode: "info"` or `mode: "comments"` instead.
-- Add nbnhhsh abbreviation lookup as the fifth `surfing_search_all` source. It is on by default, including for existing configs without the new setting, and sends every letter and digit fragment of the query to nbnhhsh; turn it off in the site search settings.
-- Add a proxy compatibility mode for Clash-style fake-IP DNS, off by default. When on, reads accept common IPv4 and IPv6 proxy address ranges and optional custom ranges, and the proxy decides the real destination, which can include local or private services. Blocked reads to common proxy ranges explain where to enable the mode.
-- Restore the previous value when saving a setting from the WebUI fails.
-- Expand the environment prompt with guidance on source choice, looking up unfamiliar terms, recording how a group uses them and joining game chat. Parts of it derive from `cortico-world-learn-alont1`; the MIT notice ships in `THIRD_PARTY_NOTICES.md`.
+- 新增 `surfing_search_all`，并行搜索 B站、贴吧、萌娘百科和百度百科，返回简短结果。通过 `surfing_read_page` 打开编号结果或继续获取贴吧结果。WebUI 提供各来源开关和每源结果条数配置。
+- 将 `surfing_read_bili_info`、`surfing_read_bili_comments` 合并到 `surfing_read_bili`，移除旧工具名，改用 `mode: "info"` 或 `mode: "comments"`。
+- 新增 nbnhhsh 缩写查询，作为 `surfing_search_all` 的第五个来源，默认开启，缺少该配置项的已有部署也会启用。查询中的每个字母、数字片段都会发送给 nbnhhsh，可在站点搜索配置中关闭。
+- 新增适用于 Clash 等 fake-IP DNS 的代理兼容模式，默认关闭。启用后允许常见 IPv4、IPv6 代理地址段及可选的自定义范围，由代理决定实际目标，目标可能包括本机或内网服务。读取因常见代理地址段被拦截时，提示该模式的开启位置。
+- WebUI 保存配置失败时恢复原值。
+- 扩充环境提示词，说明来源选择、生词查询、群体用语记录和游戏聊天的参与方式。部分内容源自 `cortico-world-learn-alont1`，MIT 许可声明随 `THIRD_PARTY_NOTICES.md` 发布。
 
 ## 0.3.2 - 2026-11-03
 
-- Use Microlink to render pages when local Chromium is unavailable, with an optional API key and keyless requests.
-- Merge reading limits and Microlink settings into one WebUI config panel, with key file actions, key status and step-by-step API key instructions.
+- 本机 Chromium 不可用时，使用 Microlink 渲染网页；支持免 Key 请求，也可配置 API Key。
+- 将读取限制和 Microlink 配置合并到同一 WebUI 配置面板，提供密钥文件操作、密钥状态和 API Key 获取步骤。
 
 ## 0.3.1 - 2026-10-30
 
-- Align development and CI validation with Cortico 0.2.10.
+- 开发环境和 CI 检查统一使用 Cortico 0.2.10。
 
 ## 0.3.0 - 2026-10-21
 
-- Add anonymous video description and comment readers, including hot/latest ordering, pinned comments, thread replies and cursor continuation.
-- Shorten the environment prompt and remove instructions already in tool descriptions.
+- 新增匿名读取视频简介和评论的功能，支持热评、最新评论排序、置顶评论、楼中楼回复和游标续读。
+- 精简环境提示词，移除与工具描述重复的说明。
 
 ## 0.2.0 - 2026-10-16
 
-- Remove Bilibili QR login, saved-session handling and the login panel. Subtitle reading and search use anonymous requests; deployments can remove `CORTICO_SURFING_BILI_SESSION` from `.env`.
-- Target Cortico 0.2.1 and world contract 6.
-- Rename console contributions and imports to WebUI.
-- Add extension self-description, official index tags and publishing guidance.
+- 移除 B站扫码登录、登录会话保存及登录面板。字幕读取和搜索改用匿名请求，部署可从 `.env` 中移除 `CORTICO_SURFING_BILI_SESSION`。
+- 适配 Cortico 0.2.1 和 World 扩展 API 6。
+- 将界面声明及相关导入统一更名为 WebUI。
+- 新增扩展自描述、官方索引标签和发布说明。
 
 ## 0.1.0
 
-- Last release using the previous Cortico extension contract.
+- 使用旧版 Cortico 扩展契约的最后一个版本。
