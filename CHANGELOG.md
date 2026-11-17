@@ -1,39 +1,45 @@
-# Changelog
+# 更新日志
+
+## 0.4.2 - 2026-11-17
+
+- 支持读取图片链接、网页截图和 PDF，可按页查看。
+- 配置页可安装网页读取所需的浏览器，显示下载进度、失败原因和 Linux 安装提示。
+- 修复部分网页读不到正文或加载卡住的问题。
+- 默认读取超时延长至 60 秒，已有配置保持不变。
+- 修复网页读取中的安全问题，补齐下载限额和连接限制。
 
 ## 0.4.1 - 2026-11-13
 
-- Save the Microlink API key directly in the Surfing panel. The compact password field clears after saving, and leaving it empty preserves the existing key.
+- 可在配置页直接保存 Microlink 密钥，保存后清空输入框，留空不覆盖已有密钥。
 
 ## 0.4.0 - 2026-11-06
 
-- Add `surfing_search_all`, which searches Bilibili, Tieba, Moegirlpedia and Baidu Baike in parallel and returns short results. Open numbered results and further Tieba results with `surfing_read_page`. The WebUI has a switch for each source and a per-source result limit.
-- Merge `surfing_read_bili_info` and `surfing_read_bili_comments` into `surfing_read_bili`. The old tool names are removed; pass `mode: "info"` or `mode: "comments"` instead.
-- Add nbnhhsh abbreviation lookup as the fifth `surfing_search_all` source. It is on by default, including for existing configs without the new setting, and sends every letter and digit fragment of the query to nbnhhsh; turn it off in the site search settings.
-- Add a proxy compatibility mode for Clash-style fake-IP DNS, off by default. When on, reads accept common IPv4 and IPv6 proxy address ranges and optional custom ranges, and the proxy decides the real destination, which can include local or private services. Blocked reads to common proxy ranges explain where to enable the mode.
-- Restore the previous value when saving a setting from the WebUI fails.
-- Expand the environment prompt with guidance on source choice, looking up unfamiliar terms, recording how a group uses them and joining game chat. Parts of it derive from `cortico-world-learn-alont1`; the MIT notice ships in `THIRD_PARTY_NOTICES.md`.
+- 新增 B站、贴吧、萌娘百科和百度百科联合搜索，可继续打开结果。来源和结果条数可配置。
+- B站视频简介和评论合并到统一读取工具，旧工具名不再支持。
+- 新增缩写查询，默认开启；查询中的字母和数字片段会发送给 nbnhhsh，可在配置页关闭。
+- 新增 Clash 等代理的兼容模式，默认关闭。开启后可能访问本机或内网服务，请仅用于可信代理。
+- 修复配置保存失败后仍显示新值的问题。
+- 改进搜索、生词查询和游戏聊天的使用指引。
 
 ## 0.3.2 - 2026-11-03
 
-- Use Microlink to render pages when local Chromium is unavailable, with an optional API key and keyless requests.
-- Merge reading limits and Microlink settings into one WebUI config panel, with key file actions, key status and step-by-step API key instructions.
+- 本机浏览器不可用时，可通过 Microlink 读取网页，无需密钥也能使用。
+- 合并读取与 Microlink 配置，补充密钥获取说明。
 
 ## 0.3.1 - 2026-10-30
 
-- Align development and CI validation with Cortico 0.2.10.
+- 更新 Cortico 0.2.10 兼容性检查。
 
 ## 0.3.0 - 2026-10-21
 
-- Add anonymous video description and comment readers, including hot/latest ordering, pinned comments, thread replies and cursor continuation.
-- Shorten the environment prompt and remove instructions already in tool descriptions.
+- 无需登录即可读取视频简介、热评、最新评论和楼中楼回复，支持继续读取。
+- 精简使用指引，减少重复说明。
 
 ## 0.2.0 - 2026-10-16
 
-- Remove Bilibili QR login, saved-session handling and the login panel. Subtitle reading and search use anonymous requests; deployments can remove `CORTICO_SURFING_BILI_SESSION` from `.env`.
-- Target Cortico 0.2.1 and world contract 6.
-- Rename console contributions and imports to WebUI.
-- Add extension self-description, official index tags and publishing guidance.
+- 移除 B站登录功能，字幕读取和搜索无需登录。
+- 适配 Cortico 0.2.1，完善扩展信息和安装说明。
 
 ## 0.1.0
 
-- Last release using the previous Cortico extension contract.
+- 使用旧版扩展接口的最后一个版本。

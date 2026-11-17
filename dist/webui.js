@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../../../Desktop/Proj/cortico-world-surfing/node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js
+// node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js
 var require_ipaddr = __commonJS({
-  "../../../../../Desktop/Proj/cortico-world-surfing/node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js"(exports, module) {
+  "node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js"(exports, module) {
     (function(root) {
       "use strict";
       const ipv4Part = "(0?\\d+|0x[a-f0-9]+)";
@@ -847,9 +847,9 @@ var PROXY_MODE_PATH = "worlds.surfing.network.proxyCompatibility";
 var PROXY_RANGES_PATH = "worlds.surfing.network.customProxyRanges";
 var SURFING_DEFAULTS = {
   enabled: false,
-  reading: { maxResponseEstimatedTokens: 3e3, maxSourceChars: 3e5 },
+  reading: { maxResponseEstimatedTokens: 3e3, maxSourceChars: 3e5, maxImageDimension: 1600 },
   bili: { subtitleGroupSec: 30, maxSubtitleRetries: 2, subtitleRetryDelayMs: 1e3 },
-  network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 2e4, proxyCompatibility: false, customProxyRanges: "" },
+  network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 6e4, proxyCompatibility: false, customProxyRanges: "" },
   cache: { ttlMs: 9e5, maxBytes: 32 * 1024 * 1024 },
   search: { bili: true, tieba: true, moegirl: true, baike: true, nbnhhsh: true, maxResults: 5 }
 };
@@ -864,7 +864,16 @@ var SURFING_CONFIG_GROUP = {
       maximum: 32768,
       "x-suffix": "\u4F30\u7B97 token",
       "x-hot": true,
-      description: "\u5305\u542B\u6B63\u6587\u548C\u7EED\u8BFB\u4FE1\u606F\uFF1B\u4E0B\u6B21\u8C03\u7528\u751F\u6548\u3002\u8FDE\u7EED\u7EED\u8BFB\u4F1A\u7D2F\u79EF\u4E0A\u4E0B\u6587\u3002"
+      description: "\u5305\u542B\u6587\u5B57\u6B63\u6587\u548C\u7EED\u8BFB\u4FE1\u606F\uFF0C\u4E0D\u542B\u56FE\u50CF\u53CA Core \u9644\u4EF6\u8BF4\u660E\u7684 token\uFF1B\u4E0B\u6B21\u8C03\u7528\u751F\u6548\u3002\u8FDE\u7EED\u7EED\u8BFB\u4F1A\u7D2F\u79EF\u4E0A\u4E0B\u6587\u3002"
+    },
+    "worlds.surfing.reading.maxImageDimension": {
+      type: "integer",
+      title: "\u6E32\u67D3\u56FE\u7247\u6700\u957F\u8FB9",
+      minimum: 512,
+      maximum: 4096,
+      "x-suffix": "\u50CF\u7D20",
+      "x-hot": true,
+      description: "\u7528\u4E8E\u7F51\u9875\u622A\u56FE\u548C PDF \u9875\u9762\uFF1B\u6BCF\u6B21\u8FD4\u56DE\u4E00\u5F20\u56FE\u7247\u3002\u56FE\u7247\u76F4\u94FE\u4FDD\u7559\u539F\u56FE\u3002"
     },
     "worlds.surfing.bili.subtitleGroupSec": {
       type: "integer",
@@ -977,7 +986,7 @@ var SURFING_LIMITS_CONFIG_GROUP = {
     },
     "worlds.surfing.cache.maxBytes": {
       type: "integer",
-      title: "\u6587\u672C\u7F13\u5B58\u4E0A\u9650",
+      title: "\u6750\u6599\u7F13\u5B58\u4E0A\u9650",
       minimum: 8388608,
       maximum: 268435456,
       "x-scale": 1048576,
@@ -1111,6 +1120,80 @@ async function mount(ctx) {
     sheet.body.append(grid, saved);
     layout.append(sheet.el);
   }
+  const browser = ui.sheet({
+    title: "\u672C\u673A\u7F51\u9875\u6E32\u67D3",
+    desc: "\u4E0B\u8F7D Chromium Headless Shell \u5230 Cortico \u6240\u5728\u673A\u5668\u3002\u5B89\u88C5\u5B8C\u6210\u540E\uFF0C\u4E0B\u6B21\u8BFB\u53D6\u751F\u6548\u3002"
+  });
+  const browserStatus = ui.msgline("\u6B63\u5728\u68C0\u67E5\u6D4F\u89C8\u5668\u2026");
+  browserStatus.setAttribute("role", "status");
+  const browserProgress = ui.h("div");
+  browserProgress.hidden = true;
+  const progress = ui.h("progress");
+  progress.max = 100;
+  progress.style.cssText = "width:160px;max-width:100%;vertical-align:middle;margin-right:8px";
+  const progressText = ui.h("span", "muted");
+  browserProgress.append(progress, progressText);
+  const browserFailure = ui.h("div");
+  browserFailure.setAttribute("role", "alert");
+  browserFailure.hidden = true;
+  const failureMessage = ui.msgline("");
+  const failureHint = ui.h("small", "muted");
+  failureHint.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere";
+  browserFailure.append(failureMessage, failureHint);
+  let browserState;
+  let polling = false;
+  const showBrowser = (next) => {
+    browserState = next;
+    browserStatus.textContent = { missing: "\u672A\u5B89\u88C5\u6216\u65E0\u6CD5\u542F\u52A8", installing: "\u5B89\u88C5\u4E2D\u2026", ready: "\u5DF2\u5B89\u88C5 \xB7 \u53EF\u7528", failed: "\u5B89\u88C5\u5931\u8D25" }[next.status];
+    browserStatus.classList.toggle("bad", next.status === "failed");
+    install.disabled = next.status === "installing" || next.status === "ready";
+    install.textContent = next.status === "failed" ? "\u91CD\u8BD5\u5B89\u88C5" : "\u5B89\u88C5 Headless Shell";
+    browserProgress.hidden = next.status !== "installing" || !next.progress;
+    if (next.progress) {
+      const { label, percent, totalMiB } = next.progress;
+      progress.setAttribute("aria-label", label);
+      if (percent === void 0) progress.removeAttribute("value");
+      else progress.value = percent;
+      progressText.textContent = [label, percent === void 0 ? "" : `${percent}%`, totalMiB === void 0 ? "" : `${totalMiB} MiB`].filter(Boolean).join(" \xB7 ");
+    }
+    browserFailure.hidden = next.status !== "failed" && next.status !== "missing" || !next.error;
+    failureMessage.classList.toggle("bad", !browserFailure.hidden);
+    failureMessage.textContent = next.error?.message ?? "";
+    failureHint.textContent = next.error?.hint ?? "";
+  };
+  const browserError = (error) => {
+    browserStatus.textContent = errorText(error);
+    browserStatus.classList.add("bad");
+  };
+  const install = ui.button("\u5B89\u88C5 Headless Shell", { variant: "primary", onClick: () => {
+    install.disabled = true;
+    browserStatus.textContent = "\u5B89\u88C5\u4E2D\u2026";
+    browserStatus.classList.remove("bad");
+    browserProgress.hidden = true;
+    browserFailure.hidden = true;
+    failureMessage.classList.remove("bad");
+    void ctx.invoke("installBrowser").then(showBrowser).catch((error) => {
+      install.disabled = false;
+      browserError(error);
+    });
+  } });
+  install.disabled = true;
+  const browserActions = ui.rowbar();
+  browserActions.style.flexWrap = "wrap";
+  browserActions.append(install, browserProgress);
+  browser.body.append(browserStatus, browserActions, browserFailure);
+  layout.append(browser.el);
+  ctx.interval(() => {
+    if (browserState?.status !== "installing" || polling) return;
+    polling = true;
+    void ctx.invoke("browserState").then(showBrowser).catch(browserError).finally(() => {
+      polling = false;
+    });
+  }, 1e3);
+  void ctx.invoke("browserState").then(showBrowser).catch((error) => {
+    install.disabled = false;
+    browserError(error);
+  });
   const anchor = (text, href) => {
     const link = ui.h("a", null, text);
     link.href = href;

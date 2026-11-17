@@ -17,7 +17,7 @@ concurrency:
 jobs:
   validate:
     name: Validate
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
       run:
@@ -66,7 +66,18 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install test browser
-        run: pnpm exec playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps --only-shell chromium
+
+      - name: Allow test browser sandbox
+        run: |
+          cat <<EOF | sudo tee /etc/apparmor.d/surfing-test-browser
+          abi <abi/4.0>,
+          include <tunables/global>
+          profile surfing-test-browser $HOME/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/surfing-test-browser
 
       - name: Tests
         run: pnpm test

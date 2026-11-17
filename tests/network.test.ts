@@ -72,6 +72,16 @@ const local = { proxyCompatibility: true, customProxyRanges: '127.0.0.0/8', requ
 const loopback = () => new PublicClient(async () => [{ address: '127.0.0.1', family: 4 }]);
 const anyHost = () => true;
 
+test('首个 DNS 地址连接失败时连接其余已核验地址', () => withPostServer(async (url, seen) => {
+  const operation = new PublicClient(async () => [
+    { address: '127.0.0.2', family: 4 }, { address: '127.0.0.1', family: 4 },
+  ]).operation(local);
+  try {
+    expect((await operation.get(`${url}/article`)).status).toBe(200);
+    expect(seen.map(request => request.path)).toEqual(['/article']);
+  } finally { operation.close(); }
+}));
+
 test('postJson 发送一次 JSON 请求体，不带 Cookie', () => withPostServer(async (url, seen) => {
   const response = await loopback().operation(local).postJson(`${url}/guess`, { text: 'yyds,好' }, anyHost);
   expect(response.status).toBe(200);

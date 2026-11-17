@@ -8,9 +8,10 @@ import { PROXY_RANGES_PATH, SURFING_CONFIG_GROUPS, SURFING_MICROLINK_SECRET, app
 import { parseAddressRanges } from './address-ranges.ts';
 import { BiliClient, biliKey, biliCommentsKey, type BiliInput, type BiliCommentsInput } from './bili.ts';
 import { ReadError, asReadError, PublicClient, waitWithSignal, type ReadOperation } from './network.ts';
-import { PageReader, pageKey } from './page-reader.ts';
+import { PageReader, pageKey, type PageReadOptions } from './page-reader.ts';
 import { SnapshotCache, estimateTokens, type Material } from './snapshots.ts';
 import { MicrolinkRenderer } from './microlink.ts';
+import { BrowserInstaller } from './browser-install.ts';
 import { SITE_SOURCES, continueTieba, searchSites } from './sites.ts';
 
 const ENV_PROMPT_FILE = fileURLToPath(new URL('./ENV_PROMPT.md', import.meta.url));
@@ -23,15 +24,17 @@ const videoTarget = {
 };
 export const SURFING_TOOL_DECLS: ToolSpec[] = [
   {
-    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页和 surfing_search_all 回执。url 初读网页；pageRef 与 linkId 打开回执中的编号，网页链接、帖子和词条打开原文，“更多贴吧结果”返回下一批结果，不带 cursor；pageRef 与 cursor 续读当前材料。返回预算内原文，仅接受公开域名，支持 URL 章节锚点。',
+    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页、图片直链、PDF 和 surfing_search_all 回执。url 初读；pageRef 与 linkId 打开编号链接；pageRef 与 cursor 续读文字，不带 mode/page。auto 优先读网页正文，无正文时截图；图片直接返回，PDF 按页返回文字和页面图片。visual 主动截图或查看 PDF 指定页，每次一张图；text 只取文字。pageRef 加 mode/page 可重新选择阅读方式或页码，网页重新加载，PDF 使用缓存原件。视觉读取需要本机 Headless Shell，供应商需启用图像输入。仅接受公开域名。',
     parameters: { type: 'object', additionalProperties: false, oneOf: [
       { required: ['url'], not: { required: ['linkId'] } },
       { required: ['pageRef'], not: { required: ['linkId'] } },
       { required: ['pageRef', 'linkId'], not: { anyOf: [{ required: ['url'] }, { required: ['cursor'] }] } },
     ], properties: {
-      url: { type: 'string', maxLength: 8192, description: '用户提供、分享卡片或搜索结果中的公开 HTTP(S) 网页 URL。' },
+      url: { type: 'string', maxLength: 8192, description: '公开 HTTP(S) 网页、图片或 PDF URL。' },
       pageRef: { type: 'string', maxLength: 256, description: '网页或 surfing_search_all 回执中的 pageRef；打开链接时用原页引用，续读时用目标页引用。' },
       linkId: { type: 'string', pattern: '^L[1-9][0-9]*$', description: '打开回执中的编号，如 L1；需配合该回执的 pageRef，不带 cursor。' }, cursor,
+      mode: { type: 'string', enum: ['auto', 'text', 'visual'], description: '默认 auto；visual 查看画面，text 只读文字。续读 cursor 时省略。' },
+      page: { type: 'integer', minimum: 1, description: '从 1 开始的 PDF 页码或网页屏号，默认 1；单独指定时使用 visual。续读 cursor 时省略。' },
     } },
   },
   {
@@ -79,7 +82,8 @@ export class SurfingWorld implements World {
   private stopped = false;
   private last?: { status: string; failed: boolean; estimatedTokens: number; sourceTruncated: boolean };
 
-  constructor(private readonly ctx: WorldContext<SurfingConfigSection>, private readonly client = new PublicClient()) {
+  constructor(private readonly ctx: WorldContext<SurfingConfigSection>, private readonly client = new PublicClient(),
+    private readonly browserInstaller = new BrowserInstaller()) {
     applyConfigDefaults(ctx.cfg);
     this.pages = new PageReader(undefined, new MicrolinkRenderer(() => ctx.secret(SURFING_MICROLINK_SECRET)));
   }
@@ -107,6 +111,14 @@ export class SurfingWorld implements World {
       let material: Material | undefined;
       let key: string;
       if (name === 'surfing_read_page') {
+        const mode = args.mode ?? (args.page === undefined ? 'auto' : 'visual');
+        if (mode !== 'auto' && mode !== 'text' && mode !== 'visual') throw new ReadError('invalid_input', 'mode 为 auto、text 或 visual。');
+        const number = args.page ?? 1;
+        if (typeof number !== 'number' || !Number.isSafeInteger(number) || number < 1)
+          throw new ReadError('invalid_input', 'page 必须是从 1 开始的整数。');
+        if (cursor && (args.mode !== undefined || args.page !== undefined))
+          throw new ReadError('invalid_input', 'cursor 续读当前文字；切换 mode 或 page 时请省略 cursor。');
+        const options: PageReadOptions = { mode, page: number, maxImageDimension: config.reading.maxImageDimension };
         if (args.pageRef !== undefined) {
           if (typeof args.pageRef !== 'string' || args.url !== undefined)
             throw new ReadError('invalid_input', '提供网页 pageRef 或 URL，两者只需一个。');
@@ -116,18 +128,22 @@ export class SurfingWorld implements World {
             const target = this.cache.link(args.pageRef, args.linkId, config);
             if (typeof target === 'string') {
               key = pageKey(target);
-              material = await this.pages.read(target, operation, config.network.maxDownloadBytes);
+              material = await this.pages.read(target, operation, config.network.maxDownloadBytes, options);
             } else {
               key = target.key;
               cursor = await this.batchCursor(target.cursor, key, config, operation,
                 (_page, op) => continueTieba(target.more, config.search.maxResults, op));
             }
+          } else if (args.mode !== undefined || args.page !== undefined) {
+            const source = this.cache.source(args.pageRef, config);
+            key = pageKey(source.url);
+            material = await this.pages.read(source.url, operation, config.network.maxDownloadBytes, options, source.pdf);
           } else ({ key, cursor } = this.cache.pageCursor(args.pageRef, cursor, config));
         } else {
           if (args.linkId !== undefined) throw new ReadError('invalid_input', '打开编号链接需提供原页 pageRef 和 linkId。');
           if (typeof args.url !== 'string') throw new ReadError('invalid_input', '提供需要读取的网页 URL 或 pageRef。');
           key = pageKey(args.url);
-          if (!cursor) material = await this.pages.read(args.url, operation, config.network.maxDownloadBytes);
+          if (!cursor) material = await this.pages.read(args.url, operation, config.network.maxDownloadBytes, options);
         }
       } else if (name === 'surfing_search_all') {
         material = await searchSites(searchQuery(args.query), args.sources, config.search, this.bili, operation);
@@ -166,7 +182,7 @@ export class SurfingWorld implements World {
       const page = this.cache.read(cursor!, key, config);
       this.last = { status: page.failed ? 'response_limit' : 'ok', failed: !!page.failed,
         estimatedTokens: page.estimatedTokens, sourceTruncated: page.sourceTruncated };
-      return { text: page.text, ...(page.failed ? { failed: true as const } : {}) };
+      return { text: page.text, ...(page.blobs ? { blobs: page.blobs } : {}), ...(page.failed ? { failed: true as const } : {}) };
     } catch (error) {
       const failure = asReadError(error);
       const text = '[tool failed] ' + failure.message;
@@ -235,12 +251,14 @@ export class SurfingWorld implements World {
         { label: '单次上限', value: this.ctx.cfg.reading.maxResponseEstimatedTokens + ' 估算 token' },
         { label: '最近返回', value: this.last ? this.last.estimatedTokens + ' 估算 token' : '尚未读取' },
         { label: '源材料', value: this.last ? (this.last.sourceTruncated ? '触及保留上限' : '未触及保留上限') : '尚未读取' },
-        { label: '文本缓存', value: Math.ceil(this.cache.sizeBytes / 1024) + ' KiB' },
+        { label: '材料缓存', value: Math.ceil(this.cache.sizeBytes / 1024) + ' KiB' },
       ],
       panels: [{ id: 'config', title: '配置' }],
       invoke: async (panel, method, args) => {
         if (panel !== 'config') throw new Error('未知面板。');
         if (method === 'state') return this.configState();
+        if (method === 'browserState') return this.browserInstaller.state();
+        if (method === 'installBrowser') return this.browserInstaller.install();
         if (method === 'save') { this.saveConfig(args[0], args[1]); return this.configState(); }
         if (method === 'saveKey') {
           const [value] = args;

@@ -7,7 +7,7 @@ export const PROXY_RANGES_PATH = 'worlds.surfing.network.customProxyRanges';
 
 export interface SurfingConfigSection {
   enabled: boolean;
-  reading: { maxResponseEstimatedTokens: number; maxSourceChars: number };
+  reading: { maxResponseEstimatedTokens: number; maxSourceChars: number; maxImageDimension: number };
   bili: { subtitleGroupSec: number; maxSubtitleRetries: number; subtitleRetryDelayMs: number };
   network: { maxDownloadBytes: number; requestTimeoutMs: number; proxyCompatibility: boolean; customProxyRanges: string };
   cache: { ttlMs: number; maxBytes: number };
@@ -16,9 +16,9 @@ export interface SurfingConfigSection {
 
 export const SURFING_DEFAULTS: SurfingConfigSection = {
   enabled: false,
-  reading: { maxResponseEstimatedTokens: 3000, maxSourceChars: 300000 },
+  reading: { maxResponseEstimatedTokens: 3000, maxSourceChars: 300000, maxImageDimension: 1600 },
   bili: { subtitleGroupSec: 30, maxSubtitleRetries: 2, subtitleRetryDelayMs: 1000 },
-  network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 20000, proxyCompatibility: false, customProxyRanges: '' },
+  network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 60000, proxyCompatibility: false, customProxyRanges: '' },
   cache: { ttlMs: 900000, maxBytes: 32 * 1024 * 1024 },
   search: { bili: true, tieba: true, moegirl: true, baike: true, nbnhhsh: true, maxResults: 5 },
 };
@@ -29,7 +29,11 @@ export const SURFING_CONFIG_GROUP: ConfigGroup = {
     'worlds.surfing.reading.maxResponseEstimatedTokens': {
       type: 'integer', title: '单次返回上限', minimum: 1024, maximum: 32768,
       'x-suffix': '估算 token', 'x-hot': true,
-      description: '包含正文和续读信息；下次调用生效。连续续读会累积上下文。',
+      description: '包含文字正文和续读信息，不含图像及 Core 附件说明的 token；下次调用生效。连续续读会累积上下文。',
+    },
+    'worlds.surfing.reading.maxImageDimension': {
+      type: 'integer', title: '渲染图片最长边', minimum: 512, maximum: 4096,
+      'x-suffix': '像素', 'x-hot': true, description: '用于网页截图和 PDF 页面；每次返回一张图片。图片直链保留原图。',
     },
     'worlds.surfing.bili.subtitleGroupSec': {
       type: 'integer', title: '字幕时间分组', minimum: 1, maximum: 120,
@@ -96,7 +100,7 @@ export const SURFING_LIMITS_CONFIG_GROUP: ConfigGroup = {
       'x-scale': 60000, 'x-suffix': '分钟', description: '到期需重新读取；新快照生效。',
     },
     'worlds.surfing.cache.maxBytes': {
-      type: 'integer', title: '文本缓存上限', minimum: 8388608, maximum: 268435456,
+      type: 'integer', title: '材料缓存上限', minimum: 8388608, maximum: 268435456,
       'x-scale': 1048576, 'x-suffix': 'MiB', description: '按保存的数据大小核算，超限淘汰最久未读的材料。',
     },
   } },
@@ -109,6 +113,7 @@ export function configValue(config: SurfingConfigSection, path: string): unknown
 }
 
 export function applyConfigDefaults(config: SurfingConfigSection): void {
+  config.reading = { ...SURFING_DEFAULTS.reading, ...config.reading };
   config.search = { ...SURFING_DEFAULTS.search, ...config.search };
   config.network = { ...SURFING_DEFAULTS.network, ...config.network };
   if (config.bili.maxSubtitleRetries === undefined) config.bili.maxSubtitleRetries = SURFING_DEFAULTS.bili.maxSubtitleRetries;

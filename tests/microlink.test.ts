@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest';
 import { MicrolinkRenderer } from '../src/microlink.ts';
 import { ReadError, requestHeaders, waitWithSignal, type ReadOperation } from '../src/network.ts';
-import { fixtureOperation } from './browser-fixture.ts';
+import { fixtureOperation, fixtureRenderer } from './browser-fixture.ts';
 import { PageReader, Renderer } from '../src/page-reader.ts';
 
 function serviceFixture(key = '', html = '<main><p>远程渲染的正文。</p></main>') {
@@ -61,7 +61,7 @@ test('本机 Chromium 取得动态正文时 Microlink 请求次数为零', async
   const get = operation.get.bind(operation);
   operation.get = async (url, options) => new URL(url).hostname === 'example.org'
     ? { url, status: 200, headers: { 'content-type': 'text/html; charset=utf-8' }, body: Buffer.from('<main><p id="body"></p></main><script>document.querySelector("#body").textContent="本机动态正文。"</script>') } : get(url, options);
-  const reader = new PageReader();
+  const reader = new PageReader(fixtureRenderer(operation));
   try {
     const material = await reader.read('https://example.org/article', operation, 8192);
     expect(body(material)).toContain('本机动态正文。');

@@ -2,7 +2,7 @@
 import { lookup } from 'node:dns/promises';
 import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
 import { request as httpsRequest } from 'node:https';
-import { isIP } from 'node:net';
+import { connect, isIP, type Socket, type TcpNetConnectOpts } from 'node:net';
 import { createGunzip, createInflate, createBrotliDecompress } from 'node:zlib';
 import ipaddr from 'ipaddr.js';
 import { commonProxyRanges, inAddressRanges, parseAddressRanges, type AddressRange } from './address-ranges.ts';
@@ -18,7 +18,7 @@ export function asReadError(error: unknown): ReadError {
   if (error instanceof ReadError) return error;
   if (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))
     return new ReadError('timeout', '读取已取消或超时。');
-  return new ReadError('network_error', '读取失败，未取得可用文本。');
+  return new ReadError('network_error', '读取失败，未取得可用内容。');
 }
 
 export interface NetworkLimits { requestTimeoutMs: number; maxDownloadBytes: number; proxyCompatibility?: boolean; customProxyRanges?: string }
@@ -34,6 +34,8 @@ export interface ReadOperation {
   get(url: string, options?: GetOptions): Promise<PublicResponse>;
   /** Sends once and returns a redirect response as is, so the body never reaches a second host. */
   postJson(url: string, payload: unknown, allowHost: (hostname: string) => boolean): Promise<PublicResponse>;
+  connect(url: string): Promise<Socket>;
+  accountBytes(bytes: number): void;
   close(): void;
 }
 
@@ -114,6 +116,24 @@ class Operation implements ReadOperation {
 
   close(): void { this.controller.abort(); }
 
+  accountBytes(bytes: number): void {
+    this.downloadedBytes += bytes;
+    if (this.downloadedBytes > this.limits.maxDownloadBytes)
+      throw new ReadError('source_limit', '单次读取的下载量已触及配置上限。');
+  }
+
+  async connect(input: string): Promise<Socket> {
+    const url = validatePublicUrl(input);
+    const addresses = await this.addresses(url);
+    return new Promise((resolve, reject) => {
+      const socket = connect({ host: url.hostname, port: Number(url.port || (url.protocol === 'https:' ? 443 : 80)),
+        autoSelectFamily: true, autoSelectFamilyAttemptTimeout: 1000, signal: this.signal,
+        lookup: (_hostname, _options, callback) => callback(null, addresses) });
+      socket.once('connect', () => resolve(socket));
+      socket.once('error', reject);
+    });
+  }
+
   async get(input: string, options: GetOptions = {}): Promise<PublicResponse> {
     try {
       let url = validatePublicUrl(input);
@@ -136,19 +156,28 @@ class Operation implements ReadOperation {
   private async send(url: URL, options: GetOptions, body?: string): Promise<PublicResponse> {
     this.signal.throwIfAborted();
     if (options.allowHost && !options.allowHost(url.hostname)) throw new ReadError('address_denied', '目标站点不在本次读取范围内。');
+    return this.request(url, await this.addresses(url), options, body);
+  }
+
+  private async addresses(url: URL): Promise<Address[]> {
+    this.signal.throwIfAborted();
     const addresses = await waitWithSignal(this.resolve(url.hostname), this.signal);
     const denied = addresses.filter(a => !isPublicAddress(a.address));
     if (!addresses.length || denied.some(a => !inAddressRanges(a.address, this.proxyRanges)))
       throw new ReadError('address_denied', addressDeniedMessage(denied, this.limits.proxyCompatibility));
-    return this.request(url, addresses.find(a => a.family === 4) ?? addresses[0], options, body);
+    return addresses;
   }
 
-  private request(url: URL, selected: Address, options: GetOptions, body?: string): Promise<PublicResponse> {
+  private request(url: URL, addresses: Address[], options: GetOptions, body?: string): Promise<PublicResponse> {
     const headers = { ...requestHeaders(options), ...(body === undefined ? {} : { 'content-type': 'application/json' }) };
+    const connection: Pick<TcpNetConnectOpts, 'autoSelectFamily' | 'autoSelectFamilyAttemptTimeout'> = {
+      autoSelectFamily: true, autoSelectFamilyAttemptTimeout: 1000,
+    };
     return new Promise((resolve, reject) => {
       const request = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
-        method: body === undefined ? 'GET' : 'POST', headers, agent: false, signal: this.signal, family: selected.family,
-        lookup: (_hostname, _options, callback) => callback(null, selected.address, selected.family),
+        method: body === undefined ? 'GET' : 'POST', headers, agent: false, signal: this.signal,
+        ...connection,
+        lookup: (_hostname, _options, callback) => callback(null, addresses),
       }, response => {
         const status = response.statusCode ?? 0;
         const normalized = responseHeaders(response.headers);
@@ -172,9 +201,7 @@ class Operation implements ReadOperation {
           try {
             for await (const value of stream) {
               const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
-              this.downloadedBytes += chunk.length;
-              if (this.downloadedBytes > this.limits.maxDownloadBytes)
-                throw new ReadError('source_limit', '单次读取的下载量已触及配置上限。');
+              this.accountBytes(chunk.length);
               chunks.push(chunk);
             }
             delete normalized['content-encoding'];
@@ -187,7 +214,7 @@ class Operation implements ReadOperation {
       request.on('socket', socket => {
         const verify = () => {
           const peer = socket.remoteAddress;
-          if (!peer || ipaddr.process(peer).toString() !== ipaddr.process(selected.address).toString())
+          if (!peer || !addresses.some(selected => ipaddr.process(peer).toString() === ipaddr.process(selected.address).toString()))
             request.destroy(new ReadError('address_denied', '实际连接地址与已核验地址不一致。'));
         };
         if (socket.remoteAddress) verify(); else socket.once('connect', verify);

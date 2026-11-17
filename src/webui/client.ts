@@ -1,4 +1,5 @@
 import type { WebUiClientBundle, WebUiPanelContext } from 'cortico/web/shared/client-panel.ts';
+import type { BrowserInstallState } from '../browser-install.ts';
 import { PROXY_MODE_PATH, PROXY_RANGES_PATH, SURFING_CONFIG_GROUPS, SURFING_LIMITS_CONFIG_GROUP, SURFING_PROXY_CONFIG_GROUP } from '../config.ts';
 
 type ConfigValue = number | boolean | string;
@@ -115,6 +116,74 @@ async function mount(ctx: WebUiPanelContext): Promise<void> {
     sheet.body.append(grid, saved);
     layout.append(sheet.el);
   }
+
+  const browser = ui.sheet({ title: '本机网页渲染',
+    desc: '下载 Chromium Headless Shell 到 Cortico 所在机器。安装完成后，下次读取生效。' });
+  const browserStatus = ui.msgline('正在检查浏览器…');
+  browserStatus.setAttribute('role', 'status');
+  const browserProgress = ui.h('div');
+  browserProgress.hidden = true;
+  const progress = ui.h('progress');
+  progress.max = 100;
+  progress.style.cssText = 'width:160px;max-width:100%;vertical-align:middle;margin-right:8px';
+  const progressText = ui.h('span', 'muted');
+  browserProgress.append(progress, progressText);
+  const browserFailure = ui.h('div');
+  browserFailure.setAttribute('role', 'alert');
+  browserFailure.hidden = true;
+  const failureMessage = ui.msgline('');
+  const failureHint = ui.h('small', 'muted');
+  failureHint.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere';
+  browserFailure.append(failureMessage, failureHint);
+  let browserState: BrowserInstallState | undefined;
+  let polling = false;
+  const showBrowser = (next: BrowserInstallState): void => {
+    browserState = next;
+    browserStatus.textContent = { missing: '未安装或无法启动', installing: '安装中…', ready: '已安装 · 可用', failed: '安装失败' }[next.status];
+    browserStatus.classList.toggle('bad', next.status === 'failed');
+    install.disabled = next.status === 'installing' || next.status === 'ready';
+    install.textContent = next.status === 'failed' ? '重试安装' : '安装 Headless Shell';
+    browserProgress.hidden = next.status !== 'installing' || !next.progress;
+    if (next.progress) {
+      const { label, percent, totalMiB } = next.progress;
+      progress.setAttribute('aria-label', label);
+      if (percent === undefined) progress.removeAttribute('value');
+      else progress.value = percent;
+      progressText.textContent = [label, percent === undefined ? '' : `${percent}%`, totalMiB === undefined ? '' : `${totalMiB} MiB`].filter(Boolean).join(' · ');
+    }
+    browserFailure.hidden = (next.status !== 'failed' && next.status !== 'missing') || !next.error;
+    failureMessage.classList.toggle('bad', !browserFailure.hidden);
+    failureMessage.textContent = next.error?.message ?? '';
+    failureHint.textContent = next.error?.hint ?? '';
+  };
+  const browserError = (error: unknown): void => {
+    browserStatus.textContent = errorText(error); browserStatus.classList.add('bad');
+  };
+  const install = ui.button('安装 Headless Shell', { variant: 'primary', onClick: () => {
+    install.disabled = true;
+    browserStatus.textContent = '安装中…';
+    browserStatus.classList.remove('bad');
+    browserProgress.hidden = true;
+    browserFailure.hidden = true;
+    failureMessage.classList.remove('bad');
+    void ctx.invoke<BrowserInstallState>('installBrowser').then(showBrowser).catch(error => {
+      install.disabled = false; browserError(error);
+    });
+  } });
+  install.disabled = true;
+  const browserActions = ui.rowbar();
+  browserActions.style.flexWrap = 'wrap';
+  browserActions.append(install, browserProgress);
+  browser.body.append(browserStatus, browserActions, browserFailure);
+  layout.append(browser.el);
+  ctx.interval(() => {
+    if (browserState?.status !== 'installing' || polling) return;
+    polling = true;
+    void ctx.invoke<BrowserInstallState>('browserState').then(showBrowser).catch(browserError).finally(() => { polling = false; });
+  }, 1000);
+  void ctx.invoke<BrowserInstallState>('browserState').then(showBrowser).catch(error => {
+    install.disabled = false; browserError(error);
+  });
 
   const anchor = (text: string, href: string): HTMLAnchorElement => {
     const link = ui.h('a', null, text);

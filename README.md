@@ -1,4 +1,4 @@
-<!-- Owner: package.json, src/definition.ts, src/world.ts, src/ENV_PROMPT.md, src/network.ts, src/bili.ts, src/sites.ts, src/microlink.ts, src/webui/client.ts -->
+<!-- Owner: package.json, src/definition.ts, src/world.ts, src/ENV_PROMPT.md, src/network.ts, src/bili.ts, src/sites.ts, src/microlink.ts, src/browser-install.ts, src/browser-proxy.ts, src/browser-network.ts, src/page-reader.ts, src/pdf-reader.ts, src/snapshots.ts, src/webui/client.ts, scripts/install-browser.mjs -->
 # 网上冲浪
 
 让 Cortico 阅读公开网页、B站视频简介、字幕和评论，在 B站、贴吧和百科中查找材料，查询字母或数字缩写的候选释义，并根据读到的内容回答问题。发送链接或BV号即可使用，B站读取均使用匿名请求。
@@ -6,6 +6,7 @@
 ## 能做什么
 
 - **阅读网页**：打开你发来的链接、分享卡片链接或网页搜索结果，提取正文；可沿正文中的编号链接打开相关页面，长文章可以继续读。
+- **视觉读取**：网页截图、PNG/JPEG/WebP/GIF 图片直链、PDF 按页查看。图片通过 Core 附件传给当前模型，需要供应商启用图像输入。
 - **阅读B站视频**：读取人工或AI字幕，保留时间范围，支持视频分P和 b23.tv 短链。
 - **阅读简介和评论**：读取视频简介、分P目录、热门或最新评论，以及指定评论的楼中楼回复。
 - **搜索视频**：按关键词查找视频，也可以搜索“关键词 梗知识”来了解梗或概念。
@@ -19,13 +20,19 @@
 
 1. 在 Cortico 扩展管理页输入 `cortico-world-surfing` 安装 npm 包；使用本地源码时选择本项目目录。
 2. 重启 Cortico 进程，启用“网上冲浪”。
-3. 读取依赖脚本加载正文的网页时，优先使用本机 Chromium。可在扩展目录安装：
+3. 在网上冲浪的「配置」页找到「本机网页渲染」，点击「安装 Headless Shell」。下载在 Cortico 所在机器后台进行，关闭页面后继续；安装失败可重试。安装完成后，下次读取生效。也可在扩展目录安装：
 
    ```powershell
    corepack pnpm install:browser
    ```
 
+安装入口仅下载 Chromium Headless Shell 及 Playwright 所需辅助组件，浏览器不随扩展包发布。下载进度按当前组件分别显示，下载完成后检查浏览器是否可启动；失败时显示原因与处理提示。
+
+Linux 缺少系统库时，在扩展目录运行 `pnpm exec playwright install-deps chromium`，需要管理员权限，适用于 Playwright 支持的 Debian / Ubuntu。沙箱需要非 root 用户及用户命名空间支持；Docker 的 seccomp 配置见 [Playwright 容器说明](https://playwright.dev/docs/docker#crawling-and-scraping)。完成处理后重试安装。
+
 本机 Chromium 不可用时，扩展将目标网页 URL 发送给 Microlink，由其渲染后返回 HTML；正文、编号链接和章节锚点仍由本扩展提取。静态读取、Chromium 和 Microlink 共用单次读取超时及下载上限。Chromium 已启动后的网页错误、超时或取消不触发 Microlink。
+
+每次读取使用独立、启用沙箱的 Chromium，通过原生 HTTPS 和 HTTP/2 加载网页资源；匿名 Cookie 仅保留在本次读取中。本地连接代理在已核验的 DNS 地址中尝试可用地址。网页及 Worker 的响应按解压后的字节数计入下载上限，WebSocket 连接被阻止，Worker 的正常计算和 GET 读取保留。网页请求空闲后提取正文或截图，等待时间计入单次读取超时。默认超时为 60 秒；已有配置保留原值，可在配置页调整「单次读取超时」。
 
 ## Microlink（可选）
 
@@ -303,11 +310,26 @@ pageRef: abbr_demo_1
 
 ## 调整阅读量
 
+`surfing_read_page` 的 `mode` 默认为 `auto`：网页优先提取正文，本机渲染后仍无正文时返回截图；图片返回原图，PDF 返回指定页的文字和图片。`visual` 主动查看网页画面，`text` 只取文字。
+
+```js
+surfing_read_page({ url: "https://example.org/report.pdf" })
+surfing_read_page({ pageRef: "回执中的引用", page: 2 })
+surfing_read_page({ url: "https://example.org/chart", mode: "visual" })
+surfing_read_page({ url: "https://example.org/image.png" })
+```
+
+`page` 从 1 开始，表示 PDF 页码或网页屏号，单独指定时使用 `visual`。每次返回一张图片。网页按纵向屏幕读取，每次指定页码会重新加载，内容变化可能改变屏数；PDF 翻页复用缓存的原件。PDF 本页没有提取到文字时仍返回页面图片。`pageRef` 加 `mode` 可以切换阅读方式；`cursor` 只续读当前文字，不同时传 `mode` 或 `page`。
+
+网页截图和 PDF 读取需要在配置页安装 Headless Shell；PDF.js 在浏览器中运行，不需要 Python 或系统 PDF 转换软件。图片直链无需浏览器。Microlink 后备仍只返回 HTML，不提供截图。截图保留网页的可见画面，不操作登录、验证码或嵌入页面。
+
 在“网上冲浪”的配置页调整每次返回量、字幕分组，以及读取和缓存限制。
 
-默认每次返回最多 **3,000 估算 token**，长网页、简介、字幕和评论按需分段续读。这个数值控制返回量，与模型的实际计费 token 可能不同；连续续读仍会累积会话上下文。
+默认每次返回最多 **3,000 估算文字 token**，长网页、简介、字幕和评论按需分段续读。图像 token 不计入这个文字上限。渲染图片最长边默认 **1,600 像素**，可在配置页调整；图片直链保留原图。连续续读仍会累积会话上下文。
 
 每份材料默认保留最多 **300,000字符**，包含正文和缓存的链接地址。达到保留上限时，结果会标明内容不完整。续读内容和编号链接保存在内存，默认最多保留15分钟；失效或重启后需要重新读取。
+
+文字、图片和 PDF 原件共同计入默认 **32 MiB** 的材料缓存；单份超限时读取失败，累计超限时淘汰最久未读材料。
 
 正文链接显示文字与编号，例如 `安装指南 [L1]`，不列网址。`surfing_read_page` 支持三种调用方式：
 
@@ -321,7 +343,7 @@ pageRef: abbr_demo_1
 
 - 网页需通过公开域名访问；不支持账号登录、本机地址或IP地址。正文需要登录或验证码时，可能只能取得页面提示。
 - 视频内容来自可访问的字幕。重试后仍未取得字幕时会说明本次读取失败，无法据此判断视频没有字幕或声音。
-- 网页阅读返回正文，暂不提取PDF、图片、音频或视频画面。
+- 不读取音频、视频画面或 Office 文件。网页和 PDF 的视觉读取由当前模型理解返回的图片，不另调 OCR 服务。
 - 萌娘百科条目页目前对本扩展的阅读器返回 Cloudflare 验证页，编号打开时回执为“网页未允许本次公开读取。”。`surfing_search_all` 中的摘要来自官方接口，不受影响。
 - 萌娘百科和百度百科按词条名精确查询，不是全文搜索。贴吧跨页可能出现上游重复帖子。
 - QQ 分享卡片缺少链接时，来源为 B站或哔哩哔哩且有标题，可按标题搜索并核对候选；来源无法确定时，需提供 BV号或视频链接，或明确要求按标题在 B站搜索。
