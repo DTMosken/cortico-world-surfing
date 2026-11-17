@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js
+// node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js
 var require_ipaddr = __commonJS({
-  "../../node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js"(exports, module) {
+  "node_modules/.pnpm/ipaddr.js@2.5.0/node_modules/ipaddr.js/lib/ipaddr.js"(exports, module) {
     (function(root) {
       "use strict";
       const ipv4Part = "(0?\\d+|0x[a-f0-9]+)";
@@ -849,7 +849,7 @@ var SURFING_DEFAULTS = {
   enabled: false,
   reading: { maxResponseEstimatedTokens: 3e3, maxSourceChars: 3e5, maxImageDimension: 1600 },
   bili: { subtitleGroupSec: 30, maxSubtitleRetries: 2, subtitleRetryDelayMs: 1e3 },
-  network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 2e4, proxyCompatibility: false, customProxyRanges: "" },
+  network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 6e4, proxyCompatibility: false, customProxyRanges: "" },
   cache: { ttlMs: 9e5, maxBytes: 32 * 1024 * 1024 },
   search: { bili: true, tieba: true, moegirl: true, baike: true, nbnhhsh: true, maxResults: 5 }
 };
@@ -1126,6 +1126,20 @@ async function mount(ctx) {
   });
   const browserStatus = ui.msgline("\u6B63\u5728\u68C0\u67E5\u6D4F\u89C8\u5668\u2026");
   browserStatus.setAttribute("role", "status");
+  const browserProgress = ui.h("div");
+  browserProgress.hidden = true;
+  const progress = ui.h("progress");
+  progress.max = 100;
+  progress.style.cssText = "width:160px;max-width:100%;vertical-align:middle;margin-right:8px";
+  const progressText = ui.h("span", "muted");
+  browserProgress.append(progress, progressText);
+  const browserFailure = ui.h("div");
+  browserFailure.setAttribute("role", "alert");
+  browserFailure.hidden = true;
+  const failureMessage = ui.msgline("");
+  const failureHint = ui.h("small", "muted");
+  failureHint.style.cssText = "white-space:pre-wrap;overflow-wrap:anywhere";
+  browserFailure.append(failureMessage, failureHint);
   let browserState;
   let polling = false;
   const showBrowser = (next) => {
@@ -1134,6 +1148,18 @@ async function mount(ctx) {
     browserStatus.classList.toggle("bad", next.status === "failed");
     install.disabled = next.status === "installing" || next.status === "ready";
     install.textContent = next.status === "failed" ? "\u91CD\u8BD5\u5B89\u88C5" : "\u5B89\u88C5 Headless Shell";
+    browserProgress.hidden = next.status !== "installing" || !next.progress;
+    if (next.progress) {
+      const { label, percent, totalMiB } = next.progress;
+      progress.setAttribute("aria-label", label);
+      if (percent === void 0) progress.removeAttribute("value");
+      else progress.value = percent;
+      progressText.textContent = [label, percent === void 0 ? "" : `${percent}%`, totalMiB === void 0 ? "" : `${totalMiB} MiB`].filter(Boolean).join(" \xB7 ");
+    }
+    browserFailure.hidden = next.status !== "failed" && next.status !== "missing" || !next.error;
+    failureMessage.classList.toggle("bad", !browserFailure.hidden);
+    failureMessage.textContent = next.error?.message ?? "";
+    failureHint.textContent = next.error?.hint ?? "";
   };
   const browserError = (error) => {
     browserStatus.textContent = errorText(error);
@@ -1141,13 +1167,21 @@ async function mount(ctx) {
   };
   const install = ui.button("\u5B89\u88C5 Headless Shell", { variant: "primary", onClick: () => {
     install.disabled = true;
+    browserStatus.textContent = "\u5B89\u88C5\u4E2D\u2026";
+    browserStatus.classList.remove("bad");
+    browserProgress.hidden = true;
+    browserFailure.hidden = true;
+    failureMessage.classList.remove("bad");
     void ctx.invoke("installBrowser").then(showBrowser).catch((error) => {
       install.disabled = false;
       browserError(error);
     });
   } });
   install.disabled = true;
-  browser.body.append(browserStatus, install);
+  const browserActions = ui.rowbar();
+  browserActions.style.flexWrap = "wrap";
+  browserActions.append(install, browserProgress);
+  browser.body.append(browserStatus, browserActions, browserFailure);
   layout.append(browser.el);
   ctx.interval(() => {
     if (browserState?.status !== "installing" || polling) return;

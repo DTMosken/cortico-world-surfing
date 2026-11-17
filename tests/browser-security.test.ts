@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
-import { readFileSync } from 'node:fs';
 import { createSecureServer } from 'node:http2';
 import type { Socket } from 'node:net';
 import { gzipSync } from 'node:zlib';
@@ -10,6 +9,7 @@ import { PublicClient, type ReadError } from '../src/network.ts';
 import { Renderer } from '../src/page-reader.ts';
 import { attachBrowserNetwork } from '../src/browser-network.ts';
 import { createBrowserProxy } from '../src/browser-proxy.ts';
+import { browserTls } from './fixtures/browser-tls.ts';
 
 type WorkerKind = 'Worker' | 'nested Worker' | 'SharedWorker' | 'URL Worker' | 'URL SharedWorker';
 const kinds: WorkerKind[] = ['Worker', 'nested Worker', 'SharedWorker', 'URL Worker', 'URL SharedWorker'];
@@ -59,9 +59,7 @@ async function withSite(html: string, content: string, run: (site: {
   const held = new Set<{ end(): void }>();
   const ready = new Set<{ end(data: string): void }>();
   let finished = false, slowStarted = false, receivedBytes = 0;
-  const server = createSecureServer({ allowHTTP1: true,
-    key: readFileSync(new URL('./fixtures/browser-key.pem', import.meta.url)),
-    cert: readFileSync(new URL('./fixtures/browser-cert.pem', import.meta.url)) });
+  const server = createSecureServer({ allowHTTP1: true, ...await browserTls });
   server.on('connection', socket => { sockets.add(socket); socket.once('close', () => sockets.delete(socket)); });
   server.on('upgrade', (request, socket) => {
     upgrades.push(request.url!);

@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { once } from 'node:events';
 import { createSecureServer } from 'node:http2';
 import { gzipSync } from 'node:zlib';
@@ -6,15 +5,14 @@ import { chromium } from 'playwright';
 import { expect, test } from 'vitest';
 import { PublicClient } from '../src/network.ts';
 import { Renderer } from '../src/page-reader.ts';
+import { browserTls } from './fixtures/browser-tls.ts';
 
 const html = '<main id="body"></main><script>fetch("/content").then(r=>r.text()).then(text=>document.querySelector("#body").textContent=text)</script>';
 const text = '浏览器通过原生 HTTPS 取得正文。';
 
 async function withServer(run: (url: string, requests: Array<{ path: string; protocol: string; cookie?: string }>) => Promise<void>, content = text) {
   const requests: Array<{ path: string; protocol: string; cookie?: string }> = [];
-  const server = createSecureServer({ allowHTTP1: true,
-    key: readFileSync(new URL('./fixtures/browser-key.pem', import.meta.url)),
-    cert: readFileSync(new URL('./fixtures/browser-cert.pem', import.meta.url)) });
+  const server = createSecureServer({ allowHTTP1: true, ...await browserTls });
   server.on('request', (request, response) => {
     requests.push({ path: request.url!, protocol: request.httpVersion, cookie: request.headers.cookie });
     if (request.url === '/content') {

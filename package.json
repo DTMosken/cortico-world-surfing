@@ -1,6 +1,6 @@
 {
   "name": "cortico-world-surfing",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "type": "module",
   "description": "读取公开网页正文、网页截图、图片直链与 PDF 页面，以及B站视频简介、字幕和评论。支持B站、贴吧与百科站点搜索、缩写释义、分段续读。",
   "author": "DTMosken",
@@ -25,7 +25,8 @@
     "tags": [
       "internet",
       "browser",
-      "video"
+      "video",
+      "external-setup"
     ],
     "describe": "describe.json",
     "webUiClient": "dist/webui.js"
@@ -62,6 +63,7 @@
     "@types/node": "^22.10.0",
     "cortico": "0.2.10",
     "esbuild": "0.28.2",
+    "selfsigned": "5.5.0",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   },
