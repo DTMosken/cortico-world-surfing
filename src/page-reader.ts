@@ -8,6 +8,7 @@ import { renderPdf } from './pdf-reader.ts';
 import { SURFING_DEFAULTS } from './config.ts';
 import { createBrowserProxy } from './browser-proxy.ts';
 import { attachBrowserNetwork } from './browser-network.ts';
+import { answerYouTubeComments, youtubeContinuation, youtubeWatchPage } from './youtube-comments.ts';
 
 import { captureScreen, type VisualStep, type VisualButton } from './visual-page.ts';
 
@@ -252,8 +253,21 @@ export class Renderer {
         const preventDefault = Function.prototype.call.bind(Event.prototype.preventDefault);
         window.addEventListener('submit',event=>preventDefault(event),true);
       `);
+      const page = await context.newPage();
       await context.route('**/*', async route => {
         const request = route.request();
+        if (capture && youtubeWatchPage(target) && youtubeContinuation(request)) {
+          try {
+            if (request.frame() !== page.mainFrame() || !youtubeWatchPage(new URL(page.url()))) { await route.abort(); return; }
+            await answerYouTubeComments(route, operation);
+          } catch (error) {
+            if (error instanceof ReadError && error.kind === 'source_limit') {
+              navigationError = error; void context.close().catch(() => {});
+            }
+            await route.abort().catch(() => {});
+          }
+          return;
+        }
         if (request.method() !== 'GET' || !['document', 'script', 'stylesheet', 'xhr', 'fetch', ...(capture ? ['image', 'font'] : [])].includes(request.resourceType())) {
           await route.abort().catch(() => {}); return;
         }
@@ -271,7 +285,6 @@ export class Renderer {
           await route.abort().catch(() => {});
         }
       });
-      const page = await context.newPage();
       if (capture) await page.setViewportSize({ width: options.maxImageDimension, height: Math.round(options.maxImageDimension * 0.75) });
       await page.goto(target.href, { waitUntil: 'domcontentloaded', timeout: 0 });
       await page.waitForLoadState('networkidle', { timeout: 0 });
