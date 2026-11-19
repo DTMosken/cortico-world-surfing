@@ -2,7 +2,7 @@
   "tools": [
     {
       "name": "surfing_read_page",
-      "description": "读取公开网页、图片直链、PDF 和 surfing_search_all 回执。url 初读；pageRef 与 linkId 打开编号链接；pageRef 与 cursor 续读文字，不带 mode/page。auto 优先读网页正文，无正文时截图；图片直接返回，PDF 按页返回文字和页面图片。visual 主动截图或查看 PDF 指定页，每次一张图；text 只取文字。pageRef 加 mode/page 可重新选择阅读方式或页码，网页重新加载，PDF 使用缓存原件。视觉读取需要本机 Headless Shell，供应商需启用图像输入。仅接受公开域名。",
+      "description": "读取公开网页、图片直链、PDF 和 surfing_search_all 回执。url 初读；pageRef 与 linkId 打开编号链接；pageRef 与 cursor 续读文字，不带 mode/page。auto 优先读网页正文，无正文时截图；图片直接返回，PDF 按页返回文字和页面图片。visual 主动截图或查看 PDF 指定页，每次一张图；text 只取文字。comments 读取短视频公开评论，截图的 buttonId 可点击按钮。pageRef 加 mode/page 可重新选择阅读方式或页码，网页重新加载，PDF 使用缓存原件。视觉读取需要本机 Headless Shell，供应商需启用图像输入。仅接受公开域名。",
       "parameters": {
         "type": "object",
         "additionalProperties": false,

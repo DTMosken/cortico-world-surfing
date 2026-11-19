@@ -110,3 +110,16 @@ test('内层画布能跨屏，并等待滚动后追加的下一屏', async () =>
     expect(result.image?.name).toBe('screen-3.png');
   } finally { await reader.stop(); }
 });
+
+test('重名按钮按出现顺序重放第二个按钮', async () => {
+  const url = 'https://example.org/buttons';
+  const op = visualOperation({[url]:{type:'text/html',body:'<button onclick="document.title=1">回复</button><button onclick="document.title=2">回复</button>'}});
+  const reader = new PageReader(fixtureRenderer(op));
+  try {
+    const first = await reader.read(url,op,100000,options);
+    const second = first.visual!.buttons[1];
+    expect(second.occurrence).toBe(2);
+    const clicked = await reader.read(url,op,100000,{...options,steps:[{page:1,button:second}],afterClick:true});
+    expect(clicked.title).toBe('2');
+  } finally {await reader.stop();}
+});

@@ -18,6 +18,7 @@ const smallContent = 'Worker 读取到的正文。';
 function workerPage(kind: WorkerKind, websocket: boolean): { html: string; script: string } {
   const exercise = `async function exercise(report) {
     const content = await fetch(self.location.origin + '/content').then(response => response.text());
+    await fetch(self.location.origin + '/write', {method:'POST'}).catch(() => {});
     let socket = 'unused';
     ${websocket ? `socket = await new Promise(resolve => {
       try {
@@ -170,6 +171,7 @@ test.each(kinds)('%s 的 GET 读取正常，WebSocket 不连接也不发送数�
     expect(result.html).toContain(smallContent);
     expect(result.html).toContain('data-socket="blocked"');
     expect(site.requests).toContain('/done');
+    expect(site.requests).not.toContain('/write');
     expect(site.upgrades).toEqual([]);
     expect(site.receivedBytes()).toBe(0);
   }, script);

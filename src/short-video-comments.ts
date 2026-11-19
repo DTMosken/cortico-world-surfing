@@ -1,14 +1,18 @@
 import type { Page, Request, Response } from 'playwright';
 import { ReadError, type ReadOperation } from './network.ts';
 
-export interface ShortVideo { site: 'TikTok' | '抖音'; id: string }
+const rules = [
+  {site:'TikTok', origin:'https://www.tiktok.com', video:/^\/@[^/]+\/video\/(\d{15,22})\/?$/, list:'/api/comment/list/', method:'direct'},
+  {site:'抖音', origin:'https://www.douyin.com', video:/^\/video\/(\d{15,22})\/?$/, list:'/aweme/v1/web/comment/list/', method:'browser',
+    alternateOrigin:'https://www-hj.douyin.com', ignore:['/aweme/v1/web/aweme/related/'], container:'[data-e2e="comment-list"]', item:'[data-e2e="comment-item"]'}
+] as const;
+export type ShortVideo = typeof rules[number] & {id:string};
 export interface CommentBatch { text: string; next?: number }
-
 export function shortVideo(url: URL): ShortVideo | undefined {
-  const tiktok = url.origin === 'https://www.tiktok.com' && /^\/@[^/]+\/video\/(\d{15,22})\/?$/.exec(url.pathname);
-  if (tiktok) return {site: 'TikTok', id: tiktok[1]};
-  const douyin = url.origin === 'https://www.douyin.com' && /^\/video\/(\d{15,22})\/?$/.exec(url.pathname);
-  if (douyin) return {site: '抖音', id: douyin[1]};
+  for (const rule of rules) {
+    const match = url.origin === rule.origin && rule.video.exec(url.pathname);
+    if (match) return {...rule,id:match[1]};
+  }
 }
 
 export function parseCommentBatch(body: Buffer, position: number, seen?: Set<string>): CommentBatch {
@@ -34,7 +38,7 @@ export function parseCommentBatch(body: Buffer, position: number, seen?: Set<str
 }
 
 export async function tiktokList(video: ShortVideo, cursor: number, operation: ReadOperation) {
-  const url = new URL('https://www.tiktok.com/api/comment/list/');
+  const url = new URL(video.list,video.origin);
   url.search = new URLSearchParams({aid:'1988', aweme_id:video.id, cursor:String(cursor), count:'20'}).toString();
   const response = await operation.get(url.href, {allowHost: hostname => hostname === url.hostname});
   if (response.status !== 200) throw new ReadError('content_unavailable', 'TikTok 未提供公开评论。');
@@ -44,21 +48,21 @@ export async function tiktokList(video: ShortVideo, cursor: number, operation: R
 export function tiktokListPosition(request: Request, video: ShortVideo): number | undefined {
   const url = new URL(request.url());
   if (request.method() !== 'GET' || !['xhr','fetch'].includes(request.resourceType()) ||
-    url.origin !== 'https://www.tiktok.com' || url.pathname !== '/api/comment/list/' ||
+    url.origin !== video.origin || url.pathname !== video.list ||
     url.searchParams.get('aweme_id') !== video.id) return;
   const position = url.searchParams.get('cursor') ?? '0';
   if (/^\d+$/.test(position) && Number.isSafeInteger(Number(position))) return Number(position);
 }
 
 /** Anonymous rankings can change on reload. Keep the batches from one visit together. */
-export async function douyinComments(page: Page, video: ShortVideo, reveal: boolean): Promise<string[]> {
+export async function douyinComments(page: Page, video: Extract<ShortVideo,{method:'browser'}>, reveal: boolean): Promise<{batches:string[]; incomplete?:boolean}> {
   const responses = new Map<number, Response>();
   function remember(reply: Response) {
     const url = new URL(reply.url());
-    if ((url.origin !== 'https://www.douyin.com' && url.origin !== 'https://www-hj.douyin.com') ||
-      url.pathname !== '/aweme/v1/web/comment/list/' || reply.request().method() !== 'GET' ||
+    if ((url.origin !== video.origin && url.origin !== video.alternateOrigin) ||
+      url.pathname !== video.list || reply.request().method() !== 'GET' ||
       url.searchParams.get('aweme_id') !== video.id || reply.frame() !== page.mainFrame() ||
-      new URL(page.url()).origin !== 'https://www.douyin.com' || shortVideo(new URL(page.url()))?.id !== video.id) return;
+      new URL(page.url()).origin !== video.origin || shortVideo(new URL(page.url()))?.id !== video.id) return;
     responses.set(Number(url.searchParams.get('cursor') ?? 0), reply);
   }
   page.on('response', remember);
@@ -70,21 +74,19 @@ export async function douyinComments(page: Page, video: ShortVideo, reveal: bool
       const cached = responses.get(position);
       const pending = cached ?? page.waitForResponse(r => responses.get(position) === r, {timeout: position ? 6000 : 0});
       if (reveal && !cached) {
-        const item = position ? page.locator('[data-e2e="comment-item"]').last() : page.locator('[data-e2e="comment-list"]').first();
+        const item = position ? page.locator(video.item).last() : page.locator(video.container).first();
         void item.scrollIntoViewIfNeeded({timeout:0}).catch(() => {});
       }
       let reply: Response;
       try { reply = await pending; }
       catch (error) {
         if (!position || !(error instanceof Error && error.name === 'TimeoutError')) throw error;
-        if (batches.length) batches[batches.length - 1] += '\n\n匿名页面未加载更多评论。';
-        else batches.push('匿名页面未加载更多评论。');
-        return batches;
+        return {batches, incomplete:true};
       }
       if (reply.status() !== 200) throw new ReadError('content_unavailable','抖音未提供公开评论。');
       const batch = parseCommentBatch(await reply.body(), position, seen);
       if (batch.text) batches.push(batch.text);
-      if (!reveal || batch.next === undefined) return batches;
+      if (!reveal || batch.next === undefined) return {batches};
       position = batch.next;
     }
   } finally { page.off('response', remember); }

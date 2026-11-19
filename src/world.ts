@@ -24,7 +24,7 @@ const videoTarget = {
 };
 export const SURFING_TOOL_DECLS: ToolSpec[] = [
   {
-    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页、图片直链、PDF 和 surfing_search_all 回执。url 初读；pageRef 与 linkId 打开编号链接；pageRef 与 cursor 续读文字，不带 mode/page。auto 优先读网页正文，无正文时截图；图片直接返回，PDF 按页返回文字和页面图片。visual 主动截图或查看 PDF 指定页，每次一张图；text 只取文字。pageRef 加 mode/page 可重新选择阅读方式或页码，网页重新加载，PDF 使用缓存原件。视觉读取需要本机 Headless Shell，供应商需启用图像输入。仅接受公开域名。',
+    name: 'surfing_read_page', tags: ['read'], description: '读取公开网页、图片直链、PDF 和 surfing_search_all 回执。url 初读；pageRef 与 linkId 打开编号链接；pageRef 与 cursor 续读文字，不带 mode/page。auto 优先读网页正文，无正文时截图；图片直接返回，PDF 按页返回文字和页面图片。visual 主动截图或查看 PDF 指定页，每次一张图；text 只取文字。comments 读取短视频公开评论，截图的 buttonId 可点击按钮。pageRef 加 mode/page 可重新选择阅读方式或页码，网页重新加载，PDF 使用缓存原件。视觉读取需要本机 Headless Shell，供应商需启用图像输入。仅接受公开域名。',
     parameters: { type: 'object', additionalProperties: false, oneOf: [
       { required: ['url'], not: { anyOf: [{ required: ['linkId'] }, { required: ['buttonId'] }] } },
       { required: ['pageRef'], not: { anyOf: [{ required: ['linkId'] }, { required: ['buttonId'] }] } },
@@ -109,6 +109,10 @@ export class SurfingWorld implements World {
       let cursor = args.cursor as string | undefined;
       const signals = [this.lifecycle.signal, ...(call.signal ? [call.signal] : [])];
       const caller = AbortSignal.any(signals);
+      const visualRead = name === 'surfing_read_page' && (args.mode === 'visual' || args.mode === 'comments' ||
+        (args.mode === undefined && args.page !== undefined) || args.buttonId !== undefined || args.cursor !== undefined);
+      if (visualRead || (name === 'surfing_read_bili' && args.mode === 'comments'))
+        config.network.maxDownloadBytes = config.network.maxVisualDownloadBytes;
       operation = this.client.operation(config.network, caller);
       let material: Material | undefined;
       let key: string;
@@ -124,7 +128,8 @@ export class SurfingWorld implements World {
           throw new ReadError('invalid_input', 'page 必须是从 1 开始的整数。');
         if (cursor && (args.mode !== undefined || args.page !== undefined))
           throw new ReadError('invalid_input', 'cursor 续读当前文字；切换 mode 或 page 时请省略 cursor。');
-        const options: PageReadOptions = { mode, page: number, maxImageDimension: config.reading.maxImageDimension };
+        const options: PageReadOptions = { mode, page: number, maxImageDimension: config.reading.maxImageDimension,
+          startScreenshot: () => config.network.maxDownloadBytes = config.network.maxVisualDownloadBytes };
         if (args.pageRef !== undefined) {
           if (typeof args.pageRef !== 'string' || args.url !== undefined)
             throw new ReadError('invalid_input', '提供网页 pageRef 或 URL，两者只需一个。');

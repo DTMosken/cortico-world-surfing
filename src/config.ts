@@ -9,7 +9,7 @@ export interface SurfingConfigSection {
   enabled: boolean;
   reading: { maxResponseEstimatedTokens: number; maxSourceChars: number; maxImageDimension: number };
   bili: { subtitleGroupSec: number; maxSubtitleRetries: number; subtitleRetryDelayMs: number };
-  network: { maxDownloadBytes: number; requestTimeoutMs: number; proxyCompatibility: boolean; customProxyRanges: string };
+  network: { maxDownloadBytes: number; maxVisualDownloadBytes: number; requestTimeoutMs: number; proxyCompatibility: boolean; customProxyRanges: string };
   cache: { ttlMs: number; maxBytes: number };
   search: { bili: boolean; tieba: boolean; moegirl: boolean; baike: boolean; nbnhhsh: boolean; maxResults: number };
 }
@@ -18,7 +18,7 @@ export const SURFING_DEFAULTS: SurfingConfigSection = {
   enabled: false,
   reading: { maxResponseEstimatedTokens: 3000, maxSourceChars: 300000, maxImageDimension: 1600 },
   bili: { subtitleGroupSec: 30, maxSubtitleRetries: 2, subtitleRetryDelayMs: 1000 },
-  network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 60000, proxyCompatibility: false, customProxyRanges: '' },
+  network: { maxDownloadBytes: 8 * 1024 * 1024, maxVisualDownloadBytes: 48 * 1024 * 1024, requestTimeoutMs: 60000, proxyCompatibility: false, customProxyRanges: '' },
   cache: { ttlMs: 900000, maxBytes: 32 * 1024 * 1024 },
   search: { bili: true, tieba: true, moegirl: true, baike: true, nbnhhsh: true, maxResults: 5 },
 };
@@ -90,6 +90,10 @@ export const SURFING_LIMITS_CONFIG_GROUP: ConfigGroup = {
     'worlds.surfing.network.maxDownloadBytes': {
       type: 'integer', title: '单次读取下载上限', minimum: 1048576, maximum: 67108864,
       'x-scale': 1048576, 'x-suffix': 'MiB', description: '按解压后数据累计，包含重定向及渲染请求。',
+    },
+    'worlds.surfing.network.maxVisualDownloadBytes': {
+      type: 'integer', title: '截图和评论下载上限', minimum: 1048576, maximum: 67108864,
+      'x-scale': 1048576, 'x-suffix': 'MiB', description: '单次截图或评论读取按解压后数据累计。',
     },
     'worlds.surfing.network.requestTimeoutMs': {
       type: 'integer', title: '单次读取超时', minimum: 3000, maximum: 120000,

@@ -1,7 +1,7 @@
 import type { Page, ElementHandle, Request } from 'playwright';
 import { ReadError } from './network.ts';
 
-export interface VisualButton { tag: string; id: string; label: string }
+export interface VisualButton { tag: string; id: string; label: string; occurrence?: number }
 export interface VisualStep { page: number; button: VisualButton }
 export interface VisualState { entry: string; steps: VisualStep[]; buttons: VisualButton[]; page: number }
 
@@ -74,7 +74,8 @@ async function position(page: Page, number: number, settle: () => Promise<void>)
 }
 
 function inspectButtons(target: VisualButton | null) {
-  const matches = new Map<string, {button: VisualButton; el: Element} | null>();
+  const counts = new Map<string, number>();
+  const buttons: VisualButton[] = [];
   for (const el of document.querySelectorAll('button,[role="button"],input[type="button"],[onclick],a[href="#"]')) {
     const anchor = el.closest('a[href]');
     if (anchor && anchor.getAttribute('href') !== '#' && !anchor.getAttribute('href')?.startsWith('javascript:')) continue;
@@ -89,10 +90,12 @@ function inspectButtons(target: VisualButton | null) {
     if (!label || label.length > 160) continue;
     const button = {tag: el.localName, id: el.id, label};
     const key = JSON.stringify([button.tag, button.id, button.label]);
-    matches.set(key, matches.has(key) ? null : {button, el});
+    const occurrence = (counts.get(key) ?? 0) + 1;
+    counts.set(key, occurrence);
+    if (target && key === JSON.stringify([target.tag, target.id, target.label]) && occurrence === (target.occurrence ?? 1)) return el;
+    buttons.push(occurrence === 1 ? button : {...button, occurrence});
   }
-  if (target) return matches.get(JSON.stringify([target.tag, target.id, target.label]))?.el ?? null;
-  return Array.from(matches.values()).flatMap(row => row ? [row.button] : []);
+  return target ? null : buttons;
 }
 
 export async function captureScreen(page: Page, number: number, steps: VisualStep[], afterClick: boolean, contentReady = false) {
@@ -103,7 +106,7 @@ export async function captureScreen(page: Page, number: number, steps: VisualSte
     const handle = await page.evaluateHandle(inspectButtons, step.button);
     try {
       const el = handle.asElement();
-      if (!el) throw new ReadError('content_unavailable', '网页按钮已变化或有重名，请重新查看该屏。');
+      if (!el) throw new ReadError('content_unavailable', '网页按钮已变化，请重新查看该屏。');
       await el.click({ timeout: 3000 });
       await settle();
     } finally { await handle.dispose(); }

@@ -849,7 +849,7 @@ var SURFING_DEFAULTS = {
   enabled: false,
   reading: { maxResponseEstimatedTokens: 3e3, maxSourceChars: 3e5, maxImageDimension: 1600 },
   bili: { subtitleGroupSec: 30, maxSubtitleRetries: 2, subtitleRetryDelayMs: 1e3 },
-  network: { maxDownloadBytes: 8 * 1024 * 1024, requestTimeoutMs: 6e4, proxyCompatibility: false, customProxyRanges: "" },
+  network: { maxDownloadBytes: 8 * 1024 * 1024, maxVisualDownloadBytes: 48 * 1024 * 1024, requestTimeoutMs: 6e4, proxyCompatibility: false, customProxyRanges: "" },
   cache: { ttlMs: 9e5, maxBytes: 32 * 1024 * 1024 },
   search: { bili: true, tieba: true, moegirl: true, baike: true, nbnhhsh: true, maxResults: 5 }
 };
@@ -965,6 +965,15 @@ var SURFING_LIMITS_CONFIG_GROUP = {
       "x-scale": 1048576,
       "x-suffix": "MiB",
       description: "\u6309\u89E3\u538B\u540E\u6570\u636E\u7D2F\u8BA1\uFF0C\u5305\u542B\u91CD\u5B9A\u5411\u53CA\u6E32\u67D3\u8BF7\u6C42\u3002"
+    },
+    "worlds.surfing.network.maxVisualDownloadBytes": {
+      type: "integer",
+      title: "\u622A\u56FE\u548C\u8BC4\u8BBA\u4E0B\u8F7D\u4E0A\u9650",
+      minimum: 1048576,
+      maximum: 67108864,
+      "x-scale": 1048576,
+      "x-suffix": "MiB",
+      description: "\u5355\u6B21\u622A\u56FE\u6216\u8BC4\u8BBA\u8BFB\u53D6\u6309\u89E3\u538B\u540E\u6570\u636E\u7D2F\u8BA1\u3002"
     },
     "worlds.surfing.network.requestTimeoutMs": {
       type: "integer",

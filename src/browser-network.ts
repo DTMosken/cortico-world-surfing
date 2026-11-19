@@ -3,14 +3,14 @@ import { ReadError, type ReadOperation } from './network.ts';
 
 /** The browser belongs to one read; response interception includes nested and shared Workers. */
 export async function attachBrowserNetwork(browser: Browser, operation: ReadOperation,
-  onError: (error: ReadError) => void, interactive = false): Promise<void> {
+  onError: (error: ReadError) => void): Promise<void> {
   const session = await browser.newBrowserCDPSession();
   let closed = false;
   let failed = false;
   browser.once('disconnected', () => { closed = true; });
   session.on('Fetch.requestPaused', event => {
     void (async () => {
-      if (interactive && !event.responseStatusCode && !event.responseErrorReason && event.request.method !== 'GET') {
+      if (!event.responseStatusCode && !event.responseErrorReason && event.request.method !== 'GET') {
         await session.send('Fetch.failRequest', {requestId: event.requestId, errorReason: 'BlockedByClient'});
         return;
       }
@@ -34,8 +34,6 @@ export async function attachBrowserNetwork(browser: Browser, operation: ReadOper
         !['content-encoding', 'content-length', 'transfer-encoding'].includes(header.name.toLowerCase()));
       // Blob Workers inherit this policy; fetched Worker scripts receive it on their own response.
       headers.push({ name: 'Content-Security-Policy', value: 'connect-src http: https: data: blob:' });
-      if (interactive && event.resourceType === 'Document')
-        headers.push({name: 'Content-Security-Policy', value: 'sandbox allow-scripts allow-same-origin'});
       await session.send('Fetch.fulfillRequest', {
         requestId: event.requestId, responseCode: event.responseStatusCode,
         responseHeaders: headers, body: Buffer.concat(chunks).toString('base64'),
@@ -49,7 +47,5 @@ export async function attachBrowserNetwork(browser: Browser, operation: ReadOper
       await session.send('Fetch.failRequest', { requestId: event.requestId, errorReason: 'Aborted' }).catch(() => {});
     });
   });
-  await session.send('Fetch.enable', { patterns: interactive
-    ? [{urlPattern: '*', requestStage: 'Request'}, {urlPattern: '*', requestStage: 'Response'}]
-    : [{urlPattern: '*', requestStage: 'Response'}] });
+  await session.send('Fetch.enable', { patterns: [{urlPattern: '*', requestStage: 'Request'}, {urlPattern: '*', requestStage: 'Response'}] });
 }

@@ -81,7 +81,7 @@ test('旧配置缺少新字段时补默认的关闭状态，validateConfig 拒�
   const ctx = context();
   ctx.cfg.network = { maxDownloadBytes: 1048576, requestTimeoutMs: 3000 } as SurfingConfigSection['network'];
   new SurfingWorld(ctx);
-  expect(ctx.cfg.network).toEqual({ maxDownloadBytes: 1048576, requestTimeoutMs: 3000, proxyCompatibility: false, customProxyRanges: '' });
+  expect(ctx.cfg.network).toEqual({ maxDownloadBytes: 1048576, maxVisualDownloadBytes: SURFING_DEFAULTS.network.maxVisualDownloadBytes, requestTimeoutMs: 3000, proxyCompatibility: false, customProxyRanges: '' });
   ctx.cfg.network.customProxyRanges = 'bad';
   expect(() => validateConfig(ctx.cfg)).toThrow('第 1 行');
 });

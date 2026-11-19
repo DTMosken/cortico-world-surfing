@@ -166,7 +166,7 @@ export class SnapshotCache {
     const hasMore = () => current.unit < material.units.length
       || (material.kind !== 'site-search' && material.nextBatch !== undefined && !material.sourceTruncated);
     const finish = () => {
-      const footer = [...notices, ...(hasMore() ? [...(material.kind === 'site-search' && !material.links ? [pageRef] : []), `续读 cursor: ${this.encode(current)}`] : [])];
+      const footer = [...notices, ...(!hasMore() && scope.kind === 'video-comments' && scope.incomplete ? ['读取状态：匿名页面未加载更多评论。'] : []), ...(hasMore() ? [...(material.kind === 'site-search' && !material.links ? [pageRef] : []), `续读 cursor: ${this.encode(current)}`] : [])];
       const title = failure ? '[tool failed] ' + failure : header.join('\n');
       return (title ? title + '\n\n' : '') + content + (footer.length ? '\n\n' + footer.join('\n') : '');
     };

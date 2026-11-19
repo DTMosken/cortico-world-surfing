@@ -13,7 +13,7 @@ import { shortVideo, parseCommentBatch, tiktokList, tiktokListPosition, douyinCo
 
 import { captureScreen, type VisualStep, type VisualButton } from './visual-page.ts';
 
-export interface PageReadOptions { mode: 'auto' | 'text' | 'visual' | 'comments'; page: number; maxImageDimension: number; steps?: VisualStep[]; afterClick?: boolean; commentCursor?: number }
+export interface PageReadOptions { mode: 'auto' | 'text' | 'visual' | 'comments'; page: number; maxImageDimension: number; steps?: VisualStep[]; afterClick?: boolean; startScreenshot?: () => void; commentCursor?: number }
 const defaultOptions: PageReadOptions = { mode: 'auto', page: 1, maxImageDimension: SURFING_DEFAULTS.reading.maxImageDimension };
 
 const ENGINE = new URL('../dist/page-engine.mjs', import.meta.url);
@@ -49,17 +49,20 @@ export class PageReader {
       const video = shortVideo(original);
       if (!video) throw new ReadError('invalid_input','评论模式需要 TikTok 或抖音的视频直链。');
       const position = options.commentCursor ?? 0;
+      let incomplete = false;
       let texts: string[], nextBatch: number | undefined;
-      if (video.site === 'TikTok') {
+      if (video.method === 'direct') {
         const batch = parseCommentBatch(await tiktokList(video, position, operation), position);
         texts = [batch.text || '本页未返回评论。'];
         nextBatch = batch.next;
       } else {
         const rendered = await this.renderer.render(original.href, operation, maxBytes, undefined, options);
-        texts = rendered.comments!.length ? rendered.comments! : ['本页未返回评论。'];
+        const comments = rendered.comments!;
+        texts = comments.batches.length ? comments.batches : ['本页未返回评论。'];
+        incomplete = !!comments.incomplete;
       }
       return {kind:'page', key:pageKey(input), source:original.href, title:video.site + ' 视频评论',
-        scope:{kind:'video-comments'}, units:texts.map(text => ({kind:'text',text})), nextBatch};
+        scope:{kind:'video-comments',incomplete}, units:texts.map(text => ({kind:'text',text})), nextBatch};
     }
     const response = savedPdf ? { url: original.href, status: 200, headers: { 'content-type': 'application/pdf' }, body: Buffer.from(savedPdf) }
       : await operation.get(original.href);
@@ -169,7 +172,7 @@ function directImageMime(bytes: Buffer): string | undefined {
 
 interface RenderedPage {
   html: string; url: string;
-  comments?: string[];
+  comments?: {batches:string[]; incomplete?:boolean};
   image?: { bytes: Uint8Array; page: number; pages: number; y: number; title: string; buttons: VisualButton[] };
 }
 
@@ -177,7 +180,7 @@ function screenshotMaterial(input: string, rendered: RenderedPage, steps: Visual
   const image = rendered.image!;
   return { kind: 'page', key: pageKey(input), source: rendered.url, title: image.title || '网页截图',
     visual: { entry: input, steps, buttons: image.buttons, page: image.page },
-    units: image.buttons.length ? [{kind: 'text', text: image.buttons.map((b,i) => `[B${i+1}] ${b.label}`).join('\n')}] : [],
+    units: image.buttons.length ? [{kind: 'text', text: image.buttons.map((b,i) => `[B${i+1}] ${b.label}${b.occurrence ? ` #${b.occurrence}` : ""}`).join('\n')}] : [],
     scope: { kind: 'web-page', extraction: 'screenshot', page: image.page, pages: image.pages, y: image.y },
     image: { bytes: image.bytes, mime: 'image/png', name: `screen-${image.page}.png`,
       fallbackText: `网页第 ${image.page}/${image.pages} 屏，纵向位置 ${image.y} 像素；来源 ${rendered.url}` } };
@@ -261,7 +264,7 @@ export class Renderer {
       operation.signal.throwIfAborted();
       await attachBrowserNetwork(browser, operation, error => {
         navigationError = error; void context.close().catch(() => {});
-      }, !!options.steps?.length);
+      });
       await context.addInitScript(`
         for (const key of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'WebTransport']) {
           Object.defineProperty(globalThis, key, { value: undefined, configurable: false, writable: false });
@@ -274,11 +277,11 @@ export class Renderer {
       `);
       const page = await context.newPage();
       const video = shortVideo(target);
-      if (options.mode === 'comments' && video?.site !== '抖音')
-        throw new ReadError('content_unavailable','视频链接未打开抖音评论页。');
+      if (options.mode === 'comments' && video?.method !== 'browser')
+        throw new ReadError('content_unavailable','视频链接未打开评论页。');
       // A reload may repeat the admitted entry GET once; a form or link to the same URL is a different navigation.
       let reloadRequested = false, reloadUsed = false;
-      if (video?.site === '抖音') {
+      if (video?.method === 'browser') {
         const navigation = await context.newCDPSession(page);
         await navigation.send('Page.enable');
         const { frameTree } = await navigation.send('Page.getFrameTree');
@@ -289,26 +292,21 @@ export class Renderer {
       }
       await context.route('**/*', async route => {
         const request = route.request();
-        if (capture && video?.site === 'TikTok' && request.method() === 'GET') {
-          const cursor = tiktokListPosition(request, video);
-          if (cursor !== undefined) {
-            try {
-              if (request.frame() !== page.mainFrame() || shortVideo(new URL(page.url()))?.id !== video.id) { await route.abort(); return; }
-              const body = await tiktokList(video, cursor, operation);
-              await route.fulfill({status:200, contentType:'application/json', body});
-            } catch (error) {
-              if (error instanceof ReadError && error.kind === 'source_limit') {
-                navigationError = error; void context.close().catch(() => {});
-              }
-              await route.abort().catch(() => {});
-            }
-            return;
+        if (options.mode === 'comments' && video?.method === 'browser') {
+          const url = new URL(request.url());
+          if ((url.origin === video.origin || url.origin === video.alternateOrigin) && video.ignore.some(path => path === url.pathname)) {
+            await route.abort(); return;
           }
         }
-        if (capture && youtubeWatchPage(target) && youtubeContinuation(request)) {
+        const cursor = capture && video?.method === 'direct' ? tiktokListPosition(request, video) : undefined;
+        if (cursor !== undefined || (capture && youtubeWatchPage(target) && youtubeContinuation(request))) {
           try {
-            if (request.frame() !== page.mainFrame() || !youtubeWatchPage(new URL(page.url()))) { await route.abort(); return; }
-            await answerYouTubeComments(route, operation);
+            const current = new URL(page.url());
+            if (request.frame() !== page.mainFrame()) { await route.abort(); return; }
+            if (cursor !== undefined && video && current.origin === video.origin && shortVideo(current)?.id === video.id) {
+              await route.fulfill({status:200, contentType:'application/json', body:await tiktokList(video,cursor,operation)});
+            } else if (youtubeWatchPage(target) && youtubeWatchPage(current)) await answerYouTubeComments(route, operation);
+            else await route.abort();
           } catch (error) {
             if (error instanceof ReadError && error.kind === 'source_limit') {
               navigationError = error; void context.close().catch(() => {});
@@ -320,28 +318,35 @@ export class Renderer {
         if (request.method() !== 'GET' || !['document', 'script', 'stylesheet', 'xhr', 'fetch', ...(capture ? ['image', 'font'] : [])].includes(request.resourceType())) {
           await route.abort().catch(() => {}); return;
         }
+        const documentRequest = request.resourceType() === 'document';
+        if (documentRequest) {
+          // Popup navigation can precede creation of its Playwright frame.
+          let frame;
+          try { frame = request.frame(); } catch { await route.abort(); return; }
+          if (frame !== page.mainFrame()) { await route.abort(); return; }
+        }
         try {
           validatePublicUrl(request.url());
-          if (request.resourceType()==='document') {
-            const first = !initialNavigation && request.frame().parentFrame()===null && request.url()===entry.href;
-            const repeatEntry = initialNavigation && reloadRequested && !reloadUsed && request.frame() === page.mainFrame()
+          if (documentRequest) {
+            const first = !initialNavigation && request.url()===entry.href;
+            const repeatEntry = initialNavigation && reloadRequested && !reloadUsed
               && request.url() === entry.href && page.url().split('#')[0] === entry.href;
-            if (request.frame() === page.mainFrame()) reloadRequested = false;
+            reloadRequested = false;
             if (repeatEntry) reloadUsed = true;
-            if (!first && !repeatEntry && !(request.redirectedFrom() && request.frame().parentFrame()===null))
+            if (!first && !repeatEntry && !request.redirectedFrom())
               throw new ReadError('access_denied','动态读取仅允许入口页面和 HTTP 重定向；需要其他页面时单独读取其链接。');
             initialNavigation = true;
           }
           await route.fallback();
         } catch (error) {
-          const mainNavigation = request.isNavigationRequest() && request.frame().parentFrame() === null;
+          const mainNavigation = documentRequest && request.isNavigationRequest();
           if (mainNavigation) navigationError = asReadError(error);
           await route.abort().catch(() => {});
           if (mainNavigation && options.mode === 'comments') void context.close().catch(() => {});
         }
       });
       if (capture || options.mode === 'comments') await page.setViewportSize({ width: options.maxImageDimension, height: Math.round(options.maxImageDimension * 0.75) });
-      const comments = video?.site === '抖音' && (capture || options.mode === 'comments')
+      const comments = video?.method === 'browser' && (capture || options.mode === 'comments')
         ? douyinComments(page, video, options.mode === 'comments') : undefined;
       // The context also closes this waiter when navigation fails or the read is cancelled.
       void comments?.catch(() => {});
@@ -358,6 +363,7 @@ export class Renderer {
       const finalUrl = validatePublicUrl(page.url()).href;
       if (Buffer.byteLength(html) > maxBytes) throw new ReadError('source_limit', '渲染后的 HTML 超出单次读取上限。');
       if (capture && await capture(html, finalUrl)) {
+        if (options.mode === 'auto') options.startScreenshot?.();
         const image = await captureScreen(page, options.page, options.steps ?? [], !!options.afterClick, !!loadedComments);
         if (navigationError) throw navigationError;
         return { html, url: finalUrl, image };
