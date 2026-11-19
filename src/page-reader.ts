@@ -9,7 +9,9 @@ import { SURFING_DEFAULTS } from './config.ts';
 import { createBrowserProxy } from './browser-proxy.ts';
 import { attachBrowserNetwork } from './browser-network.ts';
 
-export interface PageReadOptions { mode: 'auto' | 'text' | 'visual'; page: number; maxImageDimension: number }
+import { captureScreen, type VisualStep, type VisualButton } from './visual-page.ts';
+
+export interface PageReadOptions { mode: 'auto' | 'text' | 'visual'; page: number; maxImageDimension: number; steps?: VisualStep[]; afterClick?: boolean }
 const defaultOptions: PageReadOptions = { mode: 'auto', page: 1, maxImageDimension: SURFING_DEFAULTS.reading.maxImageDimension };
 
 const ENGINE = new URL('../dist/page-engine.mjs', import.meta.url);
@@ -84,7 +86,7 @@ export class PageReader {
       throw new ReadError('content_unavailable', '支持网页、公开文本、PNG/JPEG/WebP/GIF 图片和 PDF，未提取此文件格式。');
     if (options.mode === 'visual') {
       const rendered = await this.renderer.render(target.href, operation, maxBytes, response, options, async () => true);
-      return screenshotMaterial(input, rendered);
+      return screenshotMaterial(input, rendered, options.steps);
     }
     let material: Material;
     let staticMaterial: Material | undefined;
@@ -148,12 +150,14 @@ function directImageMime(bytes: Buffer): string | undefined {
 
 interface RenderedPage {
   html: string; url: string;
-  image?: { bytes: Uint8Array; page: number; pages: number; y: number; title: string };
+  image?: { bytes: Uint8Array; page: number; pages: number; y: number; title: string; buttons: VisualButton[] };
 }
 
-function screenshotMaterial(input: string, rendered: RenderedPage): Material {
+function screenshotMaterial(input: string, rendered: RenderedPage, steps: VisualStep[] = []): Material {
   const image = rendered.image!;
-  return { kind: 'page', key: pageKey(input), source: rendered.url, title: image.title || '网页截图', units: [],
+  return { kind: 'page', key: pageKey(input), source: rendered.url, title: image.title || '网页截图',
+    visual: { entry: input, steps, buttons: image.buttons, page: image.page },
+    units: image.buttons.length ? [{kind: 'text', text: image.buttons.map((b,i) => `[B${i+1}] ${b.label}`).join('\n')}] : [],
     scope: { kind: 'web-page', extraction: 'screenshot', page: image.page, pages: image.pages, y: image.y },
     image: { bytes: image.bytes, mime: 'image/png', name: `screen-${image.page}.png`,
       fallbackText: `网页第 ${image.page}/${image.pages} 屏，纵向位置 ${image.y} 像素；来源 ${rendered.url}` } };
@@ -237,7 +241,7 @@ export class Renderer {
       operation.signal.throwIfAborted();
       await attachBrowserNetwork(browser, operation, error => {
         navigationError = error; void context.close().catch(() => {});
-      });
+      }, !!options.steps?.length);
       await context.addInitScript(`
         for (const key of ['RTCPeerConnection', 'webkitRTCPeerConnection', 'WebTransport']) {
           Object.defineProperty(globalThis, key, { value: undefined, configurable: false, writable: false });
@@ -276,17 +280,9 @@ export class Renderer {
       const finalUrl = validatePublicUrl(page.url()).href;
       if (Buffer.byteLength(html) > maxBytes) throw new ReadError('source_limit', '渲染后的 HTML 超出单次读取上限。');
       if (capture && await capture(html, finalUrl)) {
-        const height = page.viewportSize()!.height;
-        const fullHeight = await page.evaluate(() => Math.max(globalThis.document.documentElement.scrollHeight, globalThis.document.body?.scrollHeight ?? 0));
-        const pages = Math.max(1, Math.ceil(fullHeight / height));
-        if (options.page > pages) throw new ReadError('invalid_input', `网页共 ${pages} 屏，请提供范围内的 page。`);
-        const top = Math.min((options.page - 1) * height, Math.max(0, fullHeight - height));
-        await page.evaluate(y => { globalThis.document.documentElement.style.scrollBehavior = 'auto'; window.scrollTo(0, y); }, top);
-        await page.waitForLoadState('networkidle', { timeout: 0 });
-        const bytes = await page.screenshot({ type: 'png', timeout: 0 });
-        const y = await page.evaluate(() => Math.round(window.scrollY));
-        return { html, url: finalUrl,
-          image: { bytes, page: options.page, pages, y, title: await page.title() } };
+        const image = await captureScreen(page, options.page, options.steps ?? [], !!options.afterClick);
+        if (navigationError) throw navigationError;
+        return { html, url: finalUrl, image };
       }
       return { html, url: finalUrl };
     } catch (error) {

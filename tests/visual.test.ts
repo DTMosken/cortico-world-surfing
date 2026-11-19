@@ -95,3 +95,18 @@ test('无效 PDF 返回格式错误，取消截图会终止浏览器上下文', 
     await expect(reading).rejects.toThrow();
   } finally { await reader.stop(); }
 });
+
+test('内层画布能跨屏，并等待滚动后追加的下一屏', async () => {
+  const html = `<style>*{margin:0}main{height:100vh;overflow:auto}canvas{display:block}</style>
+    <main><canvas height="600"></canvas><canvas height="600"></canvas></main>
+    <script>document.querySelector('main').addEventListener('scroll', e => {
+      setTimeout(() => e.target.insertAdjacentHTML('beforeend','<canvas height="600" style="background:blue"></canvas>'), 250);
+    }, {once:true})</script>`;
+  const operation = visualOperation({[url]: {type:'text/html',body:html}});
+  const reader = new PageReader(fixtureRenderer(operation));
+  try {
+    const result = await reader.read(url, operation, 100000, {...options,page:3});
+    expect(result.scope).toMatchObject({page:3,pages:3,y:1200});
+    expect(result.image?.name).toBe('screen-3.png');
+  } finally { await reader.stop(); }
+});

@@ -26,13 +26,15 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
   {
     name: 'surfing_read_page', tags: ['read'], description: '读取公开网页、图片直链、PDF 和 surfing_search_all 回执。url 初读；pageRef 与 linkId 打开编号链接；pageRef 与 cursor 续读文字，不带 mode/page。auto 优先读网页正文，无正文时截图；图片直接返回，PDF 按页返回文字和页面图片。visual 主动截图或查看 PDF 指定页，每次一张图；text 只取文字。pageRef 加 mode/page 可重新选择阅读方式或页码，网页重新加载，PDF 使用缓存原件。视觉读取需要本机 Headless Shell，供应商需启用图像输入。仅接受公开域名。',
     parameters: { type: 'object', additionalProperties: false, oneOf: [
-      { required: ['url'], not: { required: ['linkId'] } },
-      { required: ['pageRef'], not: { required: ['linkId'] } },
-      { required: ['pageRef', 'linkId'], not: { anyOf: [{ required: ['url'] }, { required: ['cursor'] }] } },
+      { required: ['url'], not: { anyOf: [{ required: ['linkId'] }, { required: ['buttonId'] }] } },
+      { required: ['pageRef'], not: { anyOf: [{ required: ['linkId'] }, { required: ['buttonId'] }] } },
+      { required: ['pageRef', 'buttonId'], not: { anyOf: ['url','linkId','cursor','mode','page'].map(key => ({ required: [key] })) } },
+      { required: ['pageRef', 'linkId'], not: { anyOf: [{ required: ['url'] }, { required: ['cursor'] }, { required: ['buttonId'] }] } },
     ], properties: {
       url: { type: 'string', maxLength: 8192, description: '公开 HTTP(S) 网页、图片或 PDF URL。' },
       pageRef: { type: 'string', maxLength: 256, description: '网页或 surfing_search_all 回执中的 pageRef；打开链接时用原页引用，续读时用目标页引用。' },
       linkId: { type: 'string', pattern: '^L[1-9][0-9]*$', description: '打开回执中的编号，如 L1；需配合该回执的 pageRef，不带 cursor。' }, cursor,
+      buttonId: { type: 'string', pattern: '^B[1-9][0-9]*$', description: '用截图的 pageRef 和按钮编号（如 B1）点击并查看结果。' },
       mode: { type: 'string', enum: ['auto', 'text', 'visual'], description: '默认 auto；visual 查看画面，text 只读文字。续读 cursor 时省略。' },
       page: { type: 'integer', minimum: 1, description: '从 1 开始的 PDF 页码或网页屏号，默认 1；单独指定时使用 visual。续读 cursor 时省略。' },
     } },
@@ -111,7 +113,11 @@ export class SurfingWorld implements World {
       let material: Material | undefined;
       let key: string;
       if (name === 'surfing_read_page') {
-        const mode = args.mode ?? (args.page === undefined ? 'auto' : 'visual');
+        const buttonId = args.buttonId;
+        if (buttonId !== undefined && (typeof buttonId !== 'string' || !/^B[1-9][0-9]*$/.test(buttonId) ||
+          typeof args.pageRef !== 'string' || ['url','linkId','page','mode','cursor'].some(key => args[key] !== undefined)))
+          throw new ReadError('invalid_input', '点击按钮仅提供截图的 pageRef 和 buttonId。');
+        const mode = args.mode ?? (args.page === undefined && !buttonId ? 'auto' : 'visual');
         if (mode !== 'auto' && mode !== 'text' && mode !== 'visual') throw new ReadError('invalid_input', 'mode 为 auto、text 或 visual。');
         const number = args.page ?? 1;
         if (typeof number !== 'number' || !Number.isSafeInteger(number) || number < 1)
@@ -134,10 +140,19 @@ export class SurfingWorld implements World {
               cursor = await this.batchCursor(target.cursor, key, config, operation,
                 (_page, op) => continueTieba(target.more, config.search.maxResults, op));
             }
-          } else if (args.mode !== undefined || args.page !== undefined) {
+          } else if (args.mode !== undefined || args.page !== undefined || buttonId) {
             const source = this.cache.source(args.pageRef, config);
-            key = pageKey(source.url);
-            material = await this.pages.read(source.url, operation, config.network.maxDownloadBytes, options, source.pdf);
+            const visual = mode === 'visual' ? source.visual : undefined;
+            const url = visual?.entry ?? source.url;
+            options.steps = visual?.steps;
+            if (typeof buttonId === 'string') {
+              const button = visual?.buttons[Number(buttonId.slice(1)) - 1];
+              if (!visual || !button) throw new ReadError('invalid_input', '截图中没有该按钮编号。');
+              options.steps = [...visual.steps, {page: visual.page, button}];
+              options.afterClick = true;
+            }
+            key = pageKey(url);
+            material = await this.pages.read(url, operation, config.network.maxDownloadBytes, options, source.pdf);
           } else ({ key, cursor } = this.cache.pageCursor(args.pageRef, cursor, config));
         } else {
           if (args.linkId !== undefined) throw new ReadError('invalid_input', '打开编号链接需提供原页 pageRef 和 linkId。');

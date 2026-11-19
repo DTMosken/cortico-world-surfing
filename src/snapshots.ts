@@ -4,6 +4,8 @@ import type { SurfingConfigSection } from './config.ts';
 import type { BlobInput } from 'cortico/core/types.ts';
 import { ReadError } from './network.ts';
 
+import type { VisualState } from './visual-page.ts';
+
 export type RecordValue = Record<string, string | number | boolean>;
 /** Link marker bounds use Unicode code points within the text unit. */
 export interface LinkSpan { id: string; from: number; to: number }
@@ -24,6 +26,7 @@ export interface Material {
   metadataTruncated?: string[];
   image?: { bytes: Uint8Array; mime: string; name: string; fallbackText: string };
   pdf?: Uint8Array;
+  visual?: VisualState;
 }
 interface Snapshot { material: Material; size: number; expiresAtMs: number; nextBatchCursor?: string }
 interface Position { id: string; unit: number; offset: number }
@@ -143,10 +146,11 @@ export class SnapshotCache {
       ? `根评论 rpid: ${scope.root}；楼中楼第${scope.page}页`
       : `${scope.sort === 'time' ? '最新' : '热门'}评论；含楼中楼预览`}`);
     if (scope.kind === 'web-section') header.push(`章节：${line(scope.anchor)}`);
-    if (scope.extraction === 'screenshot') header.push(`网页截图：第 ${scope.page}/${scope.pages} 屏；纵向位置 ${scope.y} 像素；每次指定 page 会重新加载网页。`);
+    if (scope.extraction === 'screenshot') header.push(`网页截图：第 ${scope.page}/${scope.pages} 屏（当前已加载）；纵向位置 ${scope.y} 像素；每次指定 page 会重新加载网页。`);
     if (scope.kind === 'pdf') header.push(`PDF：第 ${scope.page}/${scope.pages} 页。`);
     if (scope.extraction === 'screenshot' || scope.kind === 'pdf')
       header.push('查看其他页：沿用 pageRef，传 page 页码；文字续读仍使用 cursor。');
+    if (material.visual?.buttons.length) header.push('点击本屏按钮：沿用 pageRef，传 buttonId（如 B1）。');
     if (material.image) header.push('本次附带一张图片；供应商需启用图像输入。');
     const notices: string[] = [];
     if (material.metadataTruncated?.some(name => ['title', 'scope.part', 'scope.author', 'scope.query'].includes(name)))
@@ -233,10 +237,10 @@ export class SnapshotCache {
     return { key: snapshot.material.key, cursor: cursor ?? pageRef };
   }
 
-  source(pageRef: string, config: SurfingConfigSection): { url: string; pdf?: Uint8Array } {
+  source(pageRef: string, config: SurfingConfigSection): { url: string; pdf?: Uint8Array; visual?: VisualState } {
     const { material } = this.pageSnapshot(pageRef, config).snapshot;
     if (material.kind !== 'page') throw new ReadError('invalid_input', '搜索回执需用 linkId 打开具体链接后再选择阅读模式。');
-    return { url: material.source, pdf: material.pdf };
+    return { url: material.source, pdf: material.pdf, visual: material.visual };
   }
 
   link(pageRef: string, linkId: string, config: SurfingConfigSection): string | { more: TiebaMore; key: string; cursor: string } {

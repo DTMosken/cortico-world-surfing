@@ -319,7 +319,7 @@ surfing_read_page({ url: "https://example.org/chart", mode: "visual" })
 surfing_read_page({ url: "https://example.org/image.png" })
 ```
 
-`page` 从 1 开始，表示 PDF 页码或网页屏号，单独指定时使用 `visual`。每次返回一张图片。网页按纵向屏幕读取，每次指定页码会重新加载，内容变化可能改变屏数；PDF 翻页复用缓存的原件。PDF 本页没有提取到文字时仍返回页面图片。`pageRef` 加 `mode` 可以切换阅读方式；`cursor` 只续读当前文字，不同时传 `mode` 或 `page`。
+`page` 从 1 开始，表示 PDF 页码或网页屏号，单独指定时使用 `visual`。每次返回一张图片。网页按纵向屏幕读取，支持主要内容区的内部滚动，滚动加载时屏数可能增加。截图中的按钮带有编号，例如用 `{ pageRef, buttonId: "B1" }` 展开评论或点击下一页。后续用新回执的引用。翻屏和点击会重新加载网页并重现先前的按钮操作，按钮变化时需重新读取；PDF 翻页复用缓存的原件。PDF 本页没有提取到文字时仍返回页面图片。`pageRef` 加 `mode` 可以切换阅读方式；`cursor` 只续读当前文字，不同时传 `mode` 或 `page`。
 
 网页截图和 PDF 读取需要在配置页安装 Headless Shell；PDF.js 在浏览器中运行，不需要 Python 或系统 PDF 转换软件。图片直链无需浏览器。Microlink 后备仍只返回 HTML，不提供截图。截图保留网页的可见画面，不操作登录、验证码或嵌入页面。
 

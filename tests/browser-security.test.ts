@@ -200,3 +200,28 @@ test('页面取消自己的 fetch 后仍可完成正文读取', () => {
     expect(requests).toContain('/slow');
   });
 });
+
+test('点击下一页能读取 GET 返回的内容，表单和 POST 仍受限', async () => {
+  const html = `<button id="next">下一页</button><form><button>提交</button></form><script>
+    next.onclick = async () => {
+      const response = await fetch('/content');
+      document.title = await response.text();
+      next.textContent = '上一页';
+      fetch('/write', {method:'POST'}).catch(() => {});
+    };
+  </script>`;
+  await withSite(html, '第二页内容', async site => {
+    const {renderer} = browser();
+    const op = new PublicClient(async () => [{address:'127.0.0.1',family:4}]).operation({
+      requestTimeoutMs: 15000, maxDownloadBytes: 100000, proxyCompatibility: true, customProxyRanges: '127.0.0.0/8',
+    });
+    try {
+      const result = await renderer.render(site.url, op, 100000,
+        {url:site.url,status:200,headers:{'content-type':'text/html'},body:Buffer.from(html)},
+        {mode:'visual',page:1,maxImageDimension:800,steps:[{page:1,button:{id:'next',tag:'button',label:'下一页'}}],afterClick:true}, async () => true);
+      expect(result.image?.title).toBe('第二页内容');
+      expect(result.image?.buttons.map(button => button.label)).toEqual(['上一页']);
+      expect(site.requests).not.toContain('/write');
+    } finally { op.close(); await renderer.stop(); }
+  });
+});
