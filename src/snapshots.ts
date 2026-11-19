@@ -220,8 +220,11 @@ export class SnapshotCache {
           failure = '返回上限不足以容纳正文；提高配置后用此游标继续。';
         }
       }
-      if (current.offset === chars.length) { current.unit++; current.offset = 0; }
-      else break;
+      if (current.offset === chars.length) {
+        current.unit++;
+        current.offset = 0;
+        if (scope.kind === 'video-comments') break;
+      } else break;
     }
     const text = finish();
     if (estimateTokens(text) > cap) throw new ReadError('source_limit', '返回信息超过配置上限。');

@@ -41,6 +41,27 @@ function context(): WorldContext<SurfingConfigSection> {
     storeSecret() { throw new Error('credentials must not be stored'); }, persist() {}, async restart() {} };
 }
 
+test('短视频评论用 pageRef 和 cursor 取得下一批，重读同一游标复用回执', async () => {
+  const video = '1234567890123456789';
+  const data = (text: string, more: number) => ({type:'application/json',body:JSON.stringify({
+    status_code:0, comments:[{text}], has_more:more, cursor:20,
+  })});
+  const list = 'https://www.tiktok.com/api/comment/list/?aid=1988&aweme_id=' + video;
+  const op = visualOperation({[list+'&cursor=0&count=20']:data('第一批',1),[list+'&cursor=20&count=20']:data('第二批',0)});
+  class Client extends PublicClient { override operation() { return op; } }
+  const world = new SurfingWorld(context(),new Client());
+  const read = async (args:Record<string,unknown>) => result(await world.tools()[0].handler(args,{role:'test',log:{} as never}));
+  try {
+    const first = await read({url:'https://www.tiktok.com/@example/video/'+video, mode:'comments'});
+    const args = {pageRef:first.pageRef,cursor:first.nextCursor};
+    const second = await read(args);
+    expect(second.text).toContain('第二批');
+    expect(second.nextCursor).toBeUndefined();
+    expect(await read(args)).toEqual(second);
+    expect(op.requests).toHaveLength(2);
+  } finally { await world.stop(); }
+});
+
 test('视觉工具回执携带图片，PDF pageRef 翻页复用原件且不改变旧回执', async () => {
   const url = 'https://example.org/document.pdf';
   const operation = visualOperation({ [url]: { type: 'application/pdf', body: pdfFixture() },

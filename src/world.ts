@@ -35,7 +35,7 @@ export const SURFING_TOOL_DECLS: ToolSpec[] = [
       pageRef: { type: 'string', maxLength: 256, description: '网页或 surfing_search_all 回执中的 pageRef；打开链接时用原页引用，续读时用目标页引用。' },
       linkId: { type: 'string', pattern: '^L[1-9][0-9]*$', description: '打开回执中的编号，如 L1；需配合该回执的 pageRef，不带 cursor。' }, cursor,
       buttonId: { type: 'string', pattern: '^B[1-9][0-9]*$', description: '用截图的 pageRef 和按钮编号（如 B1）点击并查看结果。' },
-      mode: { type: 'string', enum: ['auto', 'text', 'visual'], description: '默认 auto；visual 查看画面，text 只读文字。续读 cursor 时省略。' },
+      mode: { type: 'string', enum: ['auto', 'text', 'visual', 'comments'], description: '默认 auto；visual 查看画面，text 只读文字，comments 读取 TikTok 或抖音视频的公开评论。续读 cursor 时省略。' },
       page: { type: 'integer', minimum: 1, description: '从 1 开始的 PDF 页码或网页屏号，默认 1；单独指定时使用 visual。续读 cursor 时省略。' },
     } },
   },
@@ -118,7 +118,7 @@ export class SurfingWorld implements World {
           typeof args.pageRef !== 'string' || ['url','linkId','page','mode','cursor'].some(key => args[key] !== undefined)))
           throw new ReadError('invalid_input', '点击按钮仅提供截图的 pageRef 和 buttonId。');
         const mode = args.mode ?? (args.page === undefined && !buttonId ? 'auto' : 'visual');
-        if (mode !== 'auto' && mode !== 'text' && mode !== 'visual') throw new ReadError('invalid_input', 'mode 为 auto、text 或 visual。');
+        if (mode !== 'auto' && mode !== 'text' && mode !== 'visual' && mode !== 'comments') throw new ReadError('invalid_input', 'mode 为 auto、text、visual 或 comments。');
         const number = args.page ?? 1;
         if (typeof number !== 'number' || !Number.isSafeInteger(number) || number < 1)
           throw new ReadError('invalid_input', 'page 必须是从 1 开始的整数。');
@@ -159,6 +159,11 @@ export class SurfingWorld implements World {
           if (typeof args.url !== 'string') throw new ReadError('invalid_input', '提供需要读取的网页 URL 或 pageRef。');
           key = pageKey(args.url);
           if (!cursor) material = await this.pages.read(args.url, operation, config.network.maxDownloadBytes, options);
+        }
+        if (args.cursor && cursor && key.startsWith('page:')) {
+          const source = key.slice('page:'.length);
+          cursor = await this.batchCursor(cursor, key, config, operation, (position, op) =>
+            this.pages.read(source, op, config.network.maxDownloadBytes, {...options, mode:'comments', commentCursor:position}));
         }
       } else if (name === 'surfing_search_all') {
         material = await searchSites(searchQuery(args.query), args.sources, config.search, this.bili, operation);

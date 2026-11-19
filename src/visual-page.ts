@@ -95,9 +95,9 @@ function inspectButtons(target: VisualButton | null) {
   return Array.from(matches.values()).flatMap(row => row ? [row.button] : []);
 }
 
-export async function captureScreen(page: Page, number: number, steps: VisualStep[], afterClick: boolean) {
+export async function captureScreen(page: Page, number: number, steps: VisualStep[], afterClick: boolean, contentReady = false) {
   const settle = watchRendering(page);
-  await settle();
+  if (!contentReady) await settle();
   for (const step of steps) {
     await position(page, step.page, settle);
     const handle = await page.evaluateHandle(inspectButtons, step.button);

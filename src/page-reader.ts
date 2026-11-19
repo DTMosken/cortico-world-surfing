@@ -9,10 +9,11 @@ import { SURFING_DEFAULTS } from './config.ts';
 import { createBrowserProxy } from './browser-proxy.ts';
 import { attachBrowserNetwork } from './browser-network.ts';
 import { answerYouTubeComments, youtubeContinuation, youtubeWatchPage } from './youtube-comments.ts';
+import { shortVideo, parseCommentBatch, tiktokList, tiktokListPosition, douyinComments } from './short-video-comments.ts';
 
 import { captureScreen, type VisualStep, type VisualButton } from './visual-page.ts';
 
-export interface PageReadOptions { mode: 'auto' | 'text' | 'visual'; page: number; maxImageDimension: number; steps?: VisualStep[]; afterClick?: boolean }
+export interface PageReadOptions { mode: 'auto' | 'text' | 'visual' | 'comments'; page: number; maxImageDimension: number; steps?: VisualStep[]; afterClick?: boolean; commentCursor?: number }
 const defaultOptions: PageReadOptions = { mode: 'auto', page: 1, maxImageDimension: SURFING_DEFAULTS.reading.maxImageDimension };
 
 const ENGINE = new URL('../dist/page-engine.mjs', import.meta.url);
@@ -43,6 +44,23 @@ export class PageReader {
   async read(input: string, operation: ReadOperation, maxBytes: number, options = defaultOptions, savedPdf?: Uint8Array): Promise<Material> {
     const original = validatePublicUrl(input);
     this.rejectVideo(original);
+    if (options.mode === 'comments') {
+      if (options.page !== 1) throw new ReadError('invalid_input','评论用回执里的 cursor 续读。');
+      const video = shortVideo(original);
+      if (!video) throw new ReadError('invalid_input','评论模式需要 TikTok 或抖音的视频直链。');
+      const position = options.commentCursor ?? 0;
+      let texts: string[], nextBatch: number | undefined;
+      if (video.site === 'TikTok') {
+        const batch = parseCommentBatch(await tiktokList(video, position, operation), position);
+        texts = [batch.text || '本页未返回评论。'];
+        nextBatch = batch.next;
+      } else {
+        const rendered = await this.renderer.render(original.href, operation, maxBytes, undefined, options);
+        texts = rendered.comments!.length ? rendered.comments! : ['本页未返回评论。'];
+      }
+      return {kind:'page', key:pageKey(input), source:original.href, title:video.site + ' 视频评论',
+        scope:{kind:'video-comments'}, units:texts.map(text => ({kind:'text',text})), nextBatch};
+    }
     const response = savedPdf ? { url: original.href, status: 200, headers: { 'content-type': 'application/pdf' }, body: Buffer.from(savedPdf) }
       : await operation.get(original.href);
     if (response.status !== 200) throw new ReadError(response.status === 404 ? 'not_found' : 'access_denied', '网页未允许本次公开读取。');
@@ -151,6 +169,7 @@ function directImageMime(bytes: Buffer): string | undefined {
 
 interface RenderedPage {
   html: string; url: string;
+  comments?: string[];
   image?: { bytes: Uint8Array; page: number; pages: number; y: number; title: string; buttons: VisualButton[] };
 }
 
@@ -254,8 +273,38 @@ export class Renderer {
         window.addEventListener('submit',event=>preventDefault(event),true);
       `);
       const page = await context.newPage();
+      const video = shortVideo(target);
+      if (options.mode === 'comments' && video?.site !== '抖音')
+        throw new ReadError('content_unavailable','视频链接未打开抖音评论页。');
+      // A reload may repeat the admitted entry GET once; a form or link to the same URL is a different navigation.
+      let reloadRequested = false, reloadUsed = false;
+      if (video?.site === '抖音') {
+        const navigation = await context.newCDPSession(page);
+        await navigation.send('Page.enable');
+        const { frameTree } = await navigation.send('Page.getFrameTree');
+        navigation.on('Page.frameRequestedNavigation', event => {
+          if (event.frameId === frameTree.frame.id)
+            reloadRequested = event.reason === 'reload' && event.url.split('#')[0] === entry.href;
+        });
+      }
       await context.route('**/*', async route => {
         const request = route.request();
+        if (capture && video?.site === 'TikTok' && request.method() === 'GET') {
+          const cursor = tiktokListPosition(request, video);
+          if (cursor !== undefined) {
+            try {
+              if (request.frame() !== page.mainFrame() || shortVideo(new URL(page.url()))?.id !== video.id) { await route.abort(); return; }
+              const body = await tiktokList(video, cursor, operation);
+              await route.fulfill({status:200, contentType:'application/json', body});
+            } catch (error) {
+              if (error instanceof ReadError && error.kind === 'source_limit') {
+                navigationError = error; void context.close().catch(() => {});
+              }
+              await route.abort().catch(() => {});
+            }
+            return;
+          }
+        }
         if (capture && youtubeWatchPage(target) && youtubeContinuation(request)) {
           try {
             if (request.frame() !== page.mainFrame() || !youtubeWatchPage(new URL(page.url()))) { await route.abort(); return; }
@@ -275,25 +324,41 @@ export class Renderer {
           validatePublicUrl(request.url());
           if (request.resourceType()==='document') {
             const first = !initialNavigation && request.frame().parentFrame()===null && request.url()===entry.href;
-            if (!first && !(request.redirectedFrom() && request.frame().parentFrame()===null))
+            const repeatEntry = initialNavigation && reloadRequested && !reloadUsed && request.frame() === page.mainFrame()
+              && request.url() === entry.href && page.url().split('#')[0] === entry.href;
+            if (request.frame() === page.mainFrame()) reloadRequested = false;
+            if (repeatEntry) reloadUsed = true;
+            if (!first && !repeatEntry && !(request.redirectedFrom() && request.frame().parentFrame()===null))
               throw new ReadError('access_denied','动态读取仅允许入口页面和 HTTP 重定向；需要其他页面时单独读取其链接。');
             initialNavigation = true;
           }
           await route.fallback();
         } catch (error) {
-          if (request.isNavigationRequest() && request.frame().parentFrame() === null) navigationError = asReadError(error);
+          const mainNavigation = request.isNavigationRequest() && request.frame().parentFrame() === null;
+          if (mainNavigation) navigationError = asReadError(error);
           await route.abort().catch(() => {});
+          if (mainNavigation && options.mode === 'comments') void context.close().catch(() => {});
         }
       });
-      if (capture) await page.setViewportSize({ width: options.maxImageDimension, height: Math.round(options.maxImageDimension * 0.75) });
-      await page.goto(target.href, { waitUntil: 'domcontentloaded', timeout: 0 });
-      await page.waitForLoadState('networkidle', { timeout: 0 });
+      if (capture || options.mode === 'comments') await page.setViewportSize({ width: options.maxImageDimension, height: Math.round(options.maxImageDimension * 0.75) });
+      const comments = video?.site === '抖音' && (capture || options.mode === 'comments')
+        ? douyinComments(page, video, options.mode === 'comments') : undefined;
+      // The context also closes this waiter when navigation fails or the read is cancelled.
+      void comments?.catch(() => {});
+      await page.goto(target.href, { waitUntil: options.mode === 'comments' ? 'commit' : 'domcontentloaded', timeout: 0 });
+      if (options.mode === 'comments') {
+        const batches = await comments;
+        if (navigationError) throw navigationError;
+        return {url: target.href, html:'', comments:batches};
+      }
+      const idle = page.waitForLoadState('networkidle', { timeout: 0 });
+      const loadedComments = comments ? await Promise.race([comments.catch(() => idle), idle]) : await idle;
       operation.signal.throwIfAborted();
       const html = await page.content();
       const finalUrl = validatePublicUrl(page.url()).href;
       if (Buffer.byteLength(html) > maxBytes) throw new ReadError('source_limit', '渲染后的 HTML 超出单次读取上限。');
       if (capture && await capture(html, finalUrl)) {
-        const image = await captureScreen(page, options.page, options.steps ?? [], !!options.afterClick);
+        const image = await captureScreen(page, options.page, options.steps ?? [], !!options.afterClick, !!loadedComments);
         if (navigationError) throw navigationError;
         return { html, url: finalUrl, image };
       }
